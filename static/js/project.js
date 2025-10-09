@@ -20,13 +20,29 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function setupSocketConnection() {
+    // Disconnect existing socket if present
+    if (socket) {
+        console.log('🔄 Reconnecting socket...');
+        socket.removeAllListeners();
+        socket.disconnect();
+    }
+    
     socket = io();
     
     socket.on('connect', () => {
         console.log('✅ Socket connected for project updates');
     });
     
+    socket.on('disconnect', () => {
+        console.log('⚠️ Socket disconnected, attempting to reconnect...');
+    });
+    
+    socket.on('connect_error', (error) => {
+        console.error('❌ Socket connection error:', error);
+    });
+    
     socket.on('pdf_processing', (data) => {
+        console.log('📨 PDF processing event received:', data);
         if (data.project_id === PROJECT_ID) {
             updateProcessingStatus(data);
         }
@@ -34,21 +50,30 @@ function setupSocketConnection() {
 }
 
 function updateProcessingStatus(data) {
+    console.log('📊 Updating processing status:', data);
     const uploadStatus = document.getElementById('uploadStatus');
     const progressFill = document.getElementById('progressFill');
     const uploadProgress = document.getElementById('uploadProgress');
+    
+    if (!uploadStatus || !progressFill || !uploadProgress) {
+        console.error('❌ Upload modal elements not found!');
+        return;
+    }
     
     if (data.status === 'processing') {
         uploadProgress.style.display = 'block';
         const percent = (data.current / data.total) * 100;
         progressFill.style.width = percent + '%';
         uploadStatus.textContent = `Processing PDF: ${data.current}/${data.total} pages (resizing & saving...)`;
+        console.log(`📄 Processing: ${data.current}/${data.total} (${percent.toFixed(1)}%)`);
     } else if (data.status === 'complete') {
         progressFill.style.width = '100%';
         uploadStatus.textContent = `✅ Processing complete! ${data.total} pages extracted.`;
+        console.log(`✅ PDF processing complete: ${data.total} pages`);
         
         // Auto-close after a brief delay and reload images
         setTimeout(async () => {
+            console.log('🔄 Closing modal and reloading images...');
             closeUploadModal();
             await loadImages();
             uploadProgress.style.display = 'none';
@@ -644,6 +669,18 @@ async function handleFiles(files) {
         formData.append('files', file);
         if (file.name.toLowerCase().endsWith('.pdf')) {
             hasPDF = true;
+        }
+    }
+    
+    // Ensure socket is connected for PDF processing updates
+    if (hasPDF) {
+        if (!socket || !socket.connected) {
+            console.log('🔌 Socket not connected, reconnecting for PDF processing...');
+            setupSocketConnection();
+            // Wait a bit for socket to connect
+            await new Promise(resolve => setTimeout(resolve, 500));
+        } else {
+            console.log('✅ Socket already connected for PDF processing');
         }
     }
     
