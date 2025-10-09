@@ -447,7 +447,8 @@ function setupDatasetSplitListeners() {
                 document.getElementById('splitTotal').textContent = `Total: ${total}%`;
                 document.getElementById('splitTotal').style.color = total === 100 ? 'var(--success)' : 'var(--error)';
                 
-                const annotated = parseInt(document.getElementById('annotatedImagesCount')?.textContent) || 0;
+                // Get annotated count from the sub-tabs
+                const annotated = parseInt(document.getElementById('annotatedCount')?.textContent) || 0;
                 document.getElementById('previewAnnotated').textContent = annotated;
                 document.getElementById('previewTrain').textContent = Math.floor(annotated * train / 100);
                 document.getElementById('previewVal').textContent = Math.floor(annotated * val / 100);
