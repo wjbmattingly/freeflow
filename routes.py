@@ -273,7 +273,20 @@ def upload_images(project_id):
             
             if file_ext == 'pdf':
                 # Extract images from PDF
-                pdf_images = extract_images_from_pdf(file, project_folder, batch_id)
+                pdf_images = extract_images_from_pdf(file, project_folder, batch_id, project_id)
+                
+                # Create database entries for each extracted PDF page
+                for pdf_img in pdf_images:
+                    image = Image(
+                        filename=pdf_img['filename'],
+                        filepath=pdf_img['filepath'],
+                        width=pdf_img['width'],
+                        height=pdf_img['height'],
+                        batch_id=batch_id,
+                        project_id=project_id
+                    )
+                    db.session.add(image)
+                
                 uploaded_images.extend(pdf_images)
             else:
                 # Save image directly
@@ -318,9 +331,10 @@ def upload_images(project_id):
         'images': uploaded_images
     }), 201
 
-def extract_images_from_pdf(pdf_file, output_folder, batch_id):
+def extract_images_from_pdf(pdf_file, output_folder, batch_id, project_id=None):
     """Extract images from PDF using pdfium"""
     pdf_images = []
+    MAX_RESOLUTION = 2000  # Maximum resolution on longest side
     
     # Save PDF temporarily
     temp_pdf_path = os.path.join(output_folder, f"temp_{uuid.uuid4()}.pdf")
@@ -328,16 +342,41 @@ def extract_images_from_pdf(pdf_file, output_folder, batch_id):
     
     try:
         pdf = pdfium.PdfDocument(temp_pdf_path)
+        total_pages = len(pdf)
         
-        for page_num in range(len(pdf)):
+        # Emit initial processing status
+        if project_id and _socketio_instance:
+            _socketio_instance.emit('pdf_processing', {
+                'project_id': project_id,
+                'status': 'processing',
+                'current': 0,
+                'total': total_pages,
+                'message': f'Processing PDF: 0/{total_pages} pages'
+            })
+        
+        for page_num in range(total_pages):
             page = pdf[page_num]
             bitmap = page.render(scale=2.0)  # 2x scale for better quality
             pil_image = bitmap.to_pil()
             
-            # Save as PNG
-            image_filename = f"pdf_page_{page_num + 1}_{uuid.uuid4()}.png"
+            # Resize if needed to max resolution of 2000px on longest side
+            original_width, original_height = pil_image.size
+            max_dimension = max(original_width, original_height)
+            
+            if max_dimension > MAX_RESOLUTION:
+                # Calculate new dimensions maintaining aspect ratio
+                scale_factor = MAX_RESOLUTION / max_dimension
+                new_width = int(original_width * scale_factor)
+                new_height = int(original_height * scale_factor)
+                
+                # Resize using high-quality Lanczos resampling
+                pil_image = pil_image.resize((new_width, new_height), PILImage.Resampling.LANCZOS)
+                print(f"📐 Resized page {page_num + 1} from {original_width}x{original_height} to {new_width}x{new_height}")
+            
+            # Save as JPEG with high quality to reduce file size while maintaining quality
+            image_filename = f"pdf_page_{page_num + 1}_{uuid.uuid4()}.jpg"
             image_path = os.path.join(output_folder, image_filename)
-            pil_image.save(image_path, 'PNG')
+            pil_image.save(image_path, 'JPEG', quality=90, optimize=True)
             
             width, height = pil_image.size
             pdf_images.append({
@@ -345,6 +384,26 @@ def extract_images_from_pdf(pdf_file, output_folder, batch_id):
                 'width': width,
                 'height': height,
                 'filepath': image_path
+            })
+            
+            # Emit progress update
+            if project_id and _socketio_instance:
+                _socketio_instance.emit('pdf_processing', {
+                    'project_id': project_id,
+                    'status': 'processing',
+                    'current': page_num + 1,
+                    'total': total_pages,
+                    'message': f'Processing PDF: {page_num + 1}/{total_pages} pages'
+                })
+        
+        # Emit completion
+        if project_id and _socketio_instance:
+            _socketio_instance.emit('pdf_processing', {
+                'project_id': project_id,
+                'status': 'complete',
+                'current': total_pages,
+                'total': total_pages,
+                'message': f'Completed processing {total_pages} pages'
             })
     
     finally:

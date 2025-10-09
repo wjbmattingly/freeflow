@@ -9,11 +9,15 @@ app.config['SECRET_KEY'] = 'your-secret-key-here'
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///annotation_platform.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = 'uploads'
-app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500MB max file size
+app.config['MAX_CONTENT_LENGTH'] = 1000 * 1024 * 1024  # 1GB max file size
 
 # Initialize extensions
 db.init_app(app)
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(
+    app, 
+    cors_allowed_origins="*",
+    max_http_buffer_size=1000 * 1024 * 1024  # 1GB for large file uploads
+)
 
 # Ensure upload directory exists
 Path(app.config['UPLOAD_FOLDER']).mkdir(exist_ok=True)
@@ -71,6 +75,16 @@ app.route('/api/projects/<int:project_id>/custom-models/<int:model_id>/classes',
 app.route('/api/projects/<int:project_id>/use-external-model', methods=['POST'])(routes.use_external_model)
 app.route('/api/projects/<int:project_id>/custom-models', methods=['POST'])(routes.upload_custom_model)
 app.route('/api/projects/<int:project_id>/custom-models/<int:model_id>', methods=['DELETE'])(routes.delete_custom_model)
+
+# Error handlers
+@app.errorhandler(413)
+def request_entity_too_large(error):
+    """Handle file too large error"""
+    from flask import jsonify
+    return jsonify({
+        'error': 'File too large',
+        'message': 'The uploaded file exceeds the maximum size limit of 1GB. Please try a smaller file.'
+    }), 413
 
 if __name__ == '__main__':
     with app.app_context():

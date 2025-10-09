@@ -9,13 +9,54 @@ let datasetVersions = [];
 let currentPage = 1;
 let imagesPerPage = 20;
 let selectedImages = new Set(); // Track selected image IDs
+let socket = null; // SocketIO connection for real-time updates
 
 document.addEventListener('DOMContentLoaded', () => {
     loadProject();
     setupTabs();
     setupUploadArea();
     setupDatasetSplitListeners();
+    setupSocketConnection();
 });
+
+function setupSocketConnection() {
+    socket = io();
+    
+    socket.on('connect', () => {
+        console.log('✅ Socket connected for project updates');
+    });
+    
+    socket.on('pdf_processing', (data) => {
+        if (data.project_id === PROJECT_ID) {
+            updateProcessingStatus(data);
+        }
+    });
+}
+
+function updateProcessingStatus(data) {
+    const uploadStatus = document.getElementById('uploadStatus');
+    const progressFill = document.getElementById('progressFill');
+    const uploadProgress = document.getElementById('uploadProgress');
+    
+    if (data.status === 'processing') {
+        uploadProgress.style.display = 'block';
+        const percent = (data.current / data.total) * 100;
+        progressFill.style.width = percent + '%';
+        uploadStatus.textContent = `Processing PDF: ${data.current}/${data.total} pages (resizing & saving...)`;
+    } else if (data.status === 'complete') {
+        progressFill.style.width = '100%';
+        uploadStatus.textContent = `✅ Processing complete! ${data.total} pages extracted.`;
+        
+        // Auto-close after a brief delay and reload images
+        setTimeout(async () => {
+            closeUploadModal();
+            await loadImages();
+            uploadProgress.style.display = 'none';
+            progressFill.style.width = '0%';
+            document.getElementById('fileInput').value = '';
+        }, 1500);
+    }
+}
 
 async function loadProject() {
     try {
@@ -597,8 +638,13 @@ function setupUploadArea() {
 async function handleFiles(files) {
     const formData = new FormData();
     
+    // Check if any PDFs are being uploaded
+    let hasPDF = false;
     for (let file of files) {
         formData.append('files', file);
+        if (file.name.toLowerCase().endsWith('.pdf')) {
+            hasPDF = true;
+        }
     }
     
     const uploadProgress = document.getElementById('uploadProgress');
@@ -621,16 +667,31 @@ async function handleFiles(files) {
         xhr.addEventListener('load', async () => {
             if (xhr.status === 201) {
                 const result = JSON.parse(xhr.responseText);
-                showToast(`Uploaded ${result.images.length} images successfully!`, 'success');
-                closeUploadModal();
-                await loadImages();
                 
-                // Reset
+                // If PDF was uploaded, show processing message
+                // Socket updates will show real-time progress and close the modal
+                if (hasPDF) {
+                    uploadStatus.textContent = 'Upload complete! Processing PDF pages...';
+                    progressFill.style.width = '0%';
+                    // Socket will handle the rest via updateProcessingStatus()
+                } else {
+                    // No PDF, complete immediately
+                    showToast(`Uploaded ${result.images.length} images successfully!`, 'success');
+                    closeUploadModal();
+                    await loadImages();
+                    
+                    // Reset
+                    uploadProgress.style.display = 'none';
+                    progressFill.style.width = '0%';
+                    document.getElementById('fileInput').value = '';
+                }
+            } else if (xhr.status === 413) {
+                const response = JSON.parse(xhr.responseText);
+                showToast(response.message || 'File too large. Maximum size is 1GB.', 'error');
                 uploadProgress.style.display = 'none';
-                progressFill.style.width = '0%';
-                document.getElementById('fileInput').value = '';
             } else {
                 showToast('Upload failed', 'error');
+                uploadProgress.style.display = 'none';
             }
         });
         
