@@ -10,12 +10,22 @@ from pathlib import Path
 
 def train_yolo_model(job_id, socketio):
     """Train YOLO model on annotated data"""
+    print(f"\n{'='*60}")
+    print(f"🚀 STARTING TRAINING FOR JOB #{job_id}")
+    print(f"{'='*60}\n")
+    
     from app import app
     
     with app.app_context():
         job = TrainingJob.query.get(job_id)
         if not job:
+            print(f"❌ Job #{job_id} not found!")
             return
+        
+        print(f"✅ Job found: #{job.id}")
+        print(f"   Project: {job.project.name}")
+        print(f"   Epochs: {job.epochs}")
+        print(f"   Batch: {job.batch_size}")
         
         project = job.project
         
@@ -23,6 +33,7 @@ def train_yolo_model(job_id, socketio):
             job.status = 'training'
             job.started_at = datetime.utcnow()
             db.session.commit()
+            print(f"✅ Job status updated to 'training'")
             
             socketio.emit('training_update', {
                 'job_id': job.id,
@@ -31,7 +42,9 @@ def train_yolo_model(job_id, socketio):
             })
             
             # Prepare dataset
+            print(f"📦 Preparing dataset...")
             dataset_path = prepare_yolo_dataset(project, job)
+            print(f"✅ Dataset prepared at: {dataset_path}")
             
             socketio.emit('training_update', {
                 'job_id': job.id,
@@ -42,7 +55,53 @@ def train_yolo_model(job_id, socketio):
             # Train model
             from ultralytics import YOLO
             
-            model = YOLO('yolo11n.pt')  # Start with pretrained YOLO11 nano model
+            # Load model based on size selection
+            model_size = job.model_size or 'n'
+            model_file = f'yolo11{model_size}.pt'
+            print(f"🤖 Loading YOLO11-{model_size.upper()} model ({model_file})...")
+            model = YOLO(model_file)
+            print(f"✅ Model loaded")
+            
+            # Add callback for real-time progress
+            def on_train_epoch_end(trainer):
+                """Callback function to emit progress after each epoch"""
+                try:
+                    metrics = trainer.metrics
+                    epoch = trainer.epoch + 1
+                    
+                    # Extract metrics safely
+                    train_loss = float(metrics.get('train/box_loss', 0))
+                    val_loss = float(metrics.get('val/box_loss', 0))
+                    map50 = float(metrics.get('metrics/mAP50(B)', 0))
+                    precision = float(metrics.get('metrics/precision(B)', 0))
+                    recall = float(metrics.get('metrics/recall(B)', 0))
+                    lr = float(trainer.optimizer.param_groups[0]['lr'])
+                    
+                    print(f"📊 Epoch {epoch}/{job.epochs}: Loss={train_loss:.4f}, mAP={map50:.4f}")
+                    
+                    socketio.emit('training_progress', {
+                        'job_id': job.id,
+                        'epoch': epoch,
+                        'total_epochs': job.epochs,
+                        'train_loss': train_loss,
+                        'val_loss': val_loss,
+                        'map50': map50,
+                        'precision': precision,
+                        'recall': recall,
+                        'lr': lr
+                    })
+                except Exception as e:
+                    print(f"Error in progress callback: {e}")
+            
+            # Add callbacks
+            model.add_callback('on_train_epoch_end', on_train_epoch_end)
+            print(f"✅ Callback registered")
+            
+            print(f"\n🏋️ STARTING TRAINING...")
+            print(f"   Epochs: {job.epochs}")
+            print(f"   Batch size: {job.batch_size}")
+            print(f"   Image size: {job.image_size}")
+            print()
             
             results = model.train(
                 data=os.path.join(dataset_path, 'data.yaml'),

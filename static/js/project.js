@@ -23,6 +23,7 @@ async function loadProject() {
         await loadImages();
         await loadClasses();
         await loadDatasetVersions();
+        await loadTrainedModels();
     } catch (error) {
         showToast('Failed to load project', 'error');
     }
@@ -583,6 +584,183 @@ async function addNewClass() {
         
     } catch (error) {
         showToast('Failed to add class', 'error');
+    }
+}
+
+async function loadTrainedModels() {
+    try {
+        const projectData = await apiCall(`/api/projects/${PROJECT_ID}`);
+        const models = projectData.training_jobs || [];
+        const customModels = projectData.custom_models || [];
+        
+        const versionsList = document.getElementById('versionsList');
+        
+        const completedModels = models.filter(m => m.status === 'completed' && m.model_path);
+        
+        if (completedModels.length === 0 && customModels.length === 0) {
+            versionsList.innerHTML = '<p class="empty-state">No models yet. Train a model or upload a custom one!</p>';
+            return;
+        }
+        
+        let html = '';
+        
+        // Show trained models
+        if (completedModels.length > 0) {
+            html += '<h4 style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 1rem; text-transform: uppercase;">🎓 Trained Models</h4>';
+            html += completedModels.map(model => {
+                const modelSizeLabel = {
+                    'n': 'Nano',
+                    's': 'Small',
+                    'm': 'Medium',
+                    'l': 'Large',
+                    'x': 'X-Large'
+                }[model.model_size || 'n'];
+                
+                return `
+                    <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 0.75rem; padding: 1.5rem; margin-bottom: 1rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: start;">
+                            <div style="flex: 1;">
+                                <h4 style="font-size: 1.125rem; margin-bottom: 0.5rem;">${model.name || `Model #${model.id}`}</h4>
+                                <div style="display: flex; gap: 1rem; margin-bottom: 0.75rem; flex-wrap: wrap;">
+                                    <span style="font-size: 0.875rem; color: var(--text-secondary);">📏 ${modelSizeLabel}</span>
+                                    <span style="font-size: 0.875rem; color: var(--text-secondary);">🔁 ${model.epochs} epochs</span>
+                                    <span style="font-size: 0.875rem; color: var(--text-secondary);">📦 Batch ${model.batch_size}</span>
+                                    <span style="font-size: 0.875rem; color: var(--text-secondary);">🖼️ ${model.image_size}px</span>
+                                </div>
+                                <div style="font-size: 0.75rem; color: var(--text-secondary);">
+                                    Completed ${formatDate(model.completed_at)}
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 0.5rem;">
+                                <button class="btn btn-secondary" onclick="viewTrainingDetails(${model.id})" title="View training details">
+                                    📊 Details
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        // Show custom models
+        if (customModels.length > 0) {
+            html += '<h4 style="font-size: 0.875rem; color: var(--text-secondary); margin: 1.5rem 0 1rem 0; text-transform: uppercase;">📤 Custom Uploaded Models</h4>';
+            html += customModels.map(model => `
+                <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 0.75rem; padding: 1.5rem; margin-bottom: 1rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: start;">
+                        <div style="flex: 1;">
+                            <h4 style="font-size: 1.125rem; margin-bottom: 0.5rem;">${model.name}</h4>
+                            ${model.description ? `<p style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 0.75rem;">${model.description}</p>` : ''}
+                            <div style="font-size: 0.75rem; color: var(--text-secondary);">
+                                Uploaded ${formatDate(model.created_at)} • ${model.file_size || 'Unknown size'}
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button class="btn btn-secondary" onclick="deleteCustomModel(${model.id})" style="color: var(--error);" title="Delete model">
+                                🗑️
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        versionsList.innerHTML = html;
+        
+    } catch (error) {
+        console.error('Failed to load trained models:', error);
+    }
+}
+
+function viewTrainingDetails(jobId) {
+    location.href = `/training/${PROJECT_ID}?job=${jobId}`;
+}
+
+function showUploadModelModal() {
+    document.getElementById('uploadModelModal').classList.add('active');
+}
+
+function closeUploadModelModal() {
+    document.getElementById('uploadModelModal').classList.remove('active');
+    document.getElementById('customModelName').value = '';
+    document.getElementById('customModelDescription').value = '';
+    document.getElementById('customModelFile').value = '';
+    document.getElementById('uploadModelProgress').style.display = 'none';
+}
+
+async function uploadCustomModel() {
+    const name = document.getElementById('customModelName').value.trim();
+    const description = document.getElementById('customModelDescription').value.trim();
+    const fileInput = document.getElementById('customModelFile');
+    const file = fileInput.files[0];
+    
+    if (!name) {
+        showToast('Please enter a model name', 'error');
+        return;
+    }
+    
+    if (!file) {
+        showToast('Please select a model file', 'error');
+        return;
+    }
+    
+    if (!file.name.endsWith('.pt')) {
+        showToast('Please select a .pt file', 'error');
+        return;
+    }
+    
+    const formData = new FormData();
+    formData.append('name', name);
+    formData.append('description', description);
+    formData.append('model_file', file);
+    
+    const uploadProgress = document.getElementById('uploadModelProgress');
+    const uploadStatus = document.getElementById('uploadModelStatus');
+    const progressFill = document.getElementById('modelProgressFill');
+    
+    uploadProgress.style.display = 'block';
+    uploadStatus.textContent = 'Uploading model...';
+    progressFill.style.width = '50%';
+    
+    try {
+        const result = await fetch(`/api/projects/${PROJECT_ID}/custom-models`, {
+            method: 'POST',
+            body: formData
+        });
+        
+        if (!result.ok) {
+            const error = await result.json();
+            throw new Error(error.error || 'Upload failed');
+        }
+        
+        progressFill.style.width = '100%';
+        uploadStatus.textContent = 'Upload complete!';
+        
+        showToast('Custom model uploaded successfully!', 'success');
+        closeUploadModelModal();
+        await loadTrainedModels();
+        
+    } catch (error) {
+        uploadStatus.textContent = 'Upload failed: ' + error.message;
+        showToast('Failed to upload model: ' + error.message, 'error');
+    }
+}
+
+async function deleteCustomModel(modelId) {
+    if (!confirm('Delete this custom model? This cannot be undone.')) {
+        return;
+    }
+    
+    try {
+        await apiCall(`/api/projects/${PROJECT_ID}/custom-models/${modelId}`, {
+            method: 'DELETE'
+        });
+        
+        showToast('Custom model deleted', 'success');
+        await loadTrainedModels();
+        
+    } catch (error) {
+        showToast(error.message || 'Failed to delete model', 'error');
     }
 }
 

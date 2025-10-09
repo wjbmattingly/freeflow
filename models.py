@@ -15,6 +15,7 @@ class Project(db.Model):
     classes = db.relationship('Class', backref='project', lazy=True, cascade='all, delete-orphan')
     dataset_versions = db.relationship('DatasetVersion', backref='project', lazy=True, cascade='all, delete-orphan')
     training_jobs = db.relationship('TrainingJob', backref='project', lazy=True, cascade='all, delete-orphan')
+    custom_models = db.relationship('CustomModel', backref='project', lazy=True, cascade='all, delete-orphan')
 
 class Class(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -82,6 +83,8 @@ class TrainingJob(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     project_id = db.Column(db.Integer, db.ForeignKey('project.id'), nullable=False)
     dataset_version_id = db.Column(db.Integer, db.ForeignKey('dataset_version.id'))
+    name = db.Column(db.String(200))  # User-friendly name for the model
+    model_size = db.Column(db.String(20), default='n')  # n, s, m, l, x
     status = db.Column(db.String(50), default='pending')  # pending, training, completed, failed
     epochs = db.Column(db.Integer, default=100)
     batch_size = db.Column(db.Integer, default=16)
@@ -93,5 +96,14 @@ class TrainingJob(db.Model):
     
     started_at = db.Column(db.DateTime)
     completed_at = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+class CustomModel(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey('project.id'), nullable=False)
+    name = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text)
+    file_path = db.Column(db.String(1000), nullable=False)
+    file_size = db.Column(db.String(50))  # Human-readable file size
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 

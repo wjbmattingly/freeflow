@@ -103,9 +103,15 @@
 
     <div class="tab-content" id="versionsTab">
         <div class="versions-section">
-            <h3>Trained Models</h3>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                <h3>Your Models</h3>
+                <button class="btn btn-primary" onclick="showUploadModelModal()">+ Upload Custom Model</button>
+            </div>
+            <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">
+                Trained models and custom uploaded models available for Label Assist.
+            </p>
             <div id="versionsList">
-                <!-- Training versions will be loaded here -->
+                <!-- Trained models will be loaded here -->
             </div>
         </div>
     </div>
@@ -170,6 +176,42 @@
         <div class="modal-footer">
             <button class="btn btn-secondary" onclick="closeCreateDatasetModal()">Cancel</button>
             <button class="btn btn-primary" onclick="createDatasetVersion()">Create Version</button>
+        </div>
+    </div>
+</div>
+
+<!-- Upload Custom Model Modal -->
+<div id="uploadModelModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>Upload Custom Model</h2>
+            <button class="close-btn" onclick="closeUploadModelModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label>Model Name</label>
+                <input type="text" id="customModelName" placeholder="e.g., production-model-v2">
+                <p class="help-text">Give your model a descriptive name</p>
+            </div>
+            <div class="form-group">
+                <label>Model File (.pt)</label>
+                <input type="file" id="customModelFile" accept=".pt">
+                <p class="help-text">Upload a YOLO model file (.pt format)</p>
+            </div>
+            <div class="form-group">
+                <label>Description (optional)</label>
+                <textarea id="customModelDescription" rows="3" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border); border-radius: 0.5rem;" placeholder="Notes about this model..."></textarea>
+            </div>
+            <div id="uploadModelProgress" style="display: none; margin-top: 1rem;">
+                <div style="background: var(--hover); border-radius: 0.5rem; overflow: hidden; height: 2rem;">
+                    <div id="modelProgressFill" style="background: var(--primary-color); height: 100%; width: 0%; transition: width 0.3s;"></div>
+                </div>
+                <p id="uploadModelStatus" style="margin-top: 0.5rem; font-size: 0.875rem;"></p>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeUploadModelModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="uploadCustomModel()">Upload Model</button>
         </div>
     </div>
 </div>

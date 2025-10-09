@@ -7,6 +7,8 @@ let currentImage = null;
 let classes = [];
 let selectedClassId = null;
 let externalModels = [];
+let trainedModels = [];
+let customModels = [];
 let selectedExternalModel = null;
 let selectedModelInfo = null;
 let classMapping = {};
@@ -20,6 +22,9 @@ let annotations = [];
 let isDrawing = false;
 let startX, startY;
 let currentBox = null;
+let selectedAnnotation = null;
+let isDragging = false;
+let dragHandle = null; // 'move', 'nw', 'ne', 'sw', 'se', 'n', 's', 'e', 'w'
 let zoom = 1;
 let panX = 0, panY = 0;
 let history = [];
@@ -32,6 +37,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadClasses();
     loadImages();
     loadExternalModels();
+    loadTrainedModels();
     setupCanvas();
     setupKeyboardShortcuts();
 });
@@ -165,29 +171,182 @@ function handleMouseDown(e) {
     const x = (e.clientX - rect.left) / canvas.width;
     const y = (e.clientY - rect.top) / canvas.height;
     
+    // Check if clicking on a handle of selected annotation
+    if (selectedAnnotation) {
+        const handle = getHandleAtPosition(x, y, selectedAnnotation);
+        if (handle) {
+            isDragging = true;
+            dragHandle = handle;
+            startX = x;
+            startY = y;
+            return;
+        }
+    }
+    
+    // Check if clicking on an existing annotation
+    const clicked = getAnnotationAtPosition(x, y);
+    if (clicked) {
+        selectedAnnotation = clicked;
+        drawCanvas();
+        renderAnnotationsList();
+        return;
+    }
+    
+    // Otherwise, start drawing new box
+    selectedAnnotation = null;
     isDrawing = true;
     startX = x;
     startY = y;
 }
 
-function handleMouseMove(e) {
-    if (!isDrawing) return;
+function getAnnotationAtPosition(x, y) {
+    // Check in reverse order (most recent first)
+    for (let i = annotations.length - 1; i >= 0; i--) {
+        const ann = annotations[i];
+        const left = ann.x_center - ann.width / 2;
+        const right = ann.x_center + ann.width / 2;
+        const top = ann.y_center - ann.height / 2;
+        const bottom = ann.y_center + ann.height / 2;
+        
+        if (x >= left && x <= right && y >= top && y <= bottom) {
+            return ann;
+        }
+    }
+    return null;
+}
+
+function getHandleAtPosition(x, y, annotation) {
+    const handleSize = 0.015; // 1.5% of canvas size for better click target
+    const left = annotation.x_center - annotation.width / 2;
+    const right = annotation.x_center + annotation.width / 2;
+    const top = annotation.y_center - annotation.height / 2;
+    const bottom = annotation.y_center + annotation.height / 2;
+    const cx = annotation.x_center;
+    const cy = annotation.y_center;
     
+    // Corner handles (check corners first for priority)
+    if (Math.abs(x - left) < handleSize && Math.abs(y - top) < handleSize) return 'nw';
+    if (Math.abs(x - right) < handleSize && Math.abs(y - top) < handleSize) return 'ne';
+    if (Math.abs(x - left) < handleSize && Math.abs(y - bottom) < handleSize) return 'sw';
+    if (Math.abs(x - right) < handleSize && Math.abs(y - bottom) < handleSize) return 'se';
+    
+    // Edge handles
+    if (Math.abs(x - cx) < handleSize && Math.abs(y - top) < handleSize) return 'n';
+    if (Math.abs(x - cx) < handleSize && Math.abs(y - bottom) < handleSize) return 's';
+    if (Math.abs(x - left) < handleSize && Math.abs(y - cy) < handleSize) return 'w';
+    if (Math.abs(x - right) < handleSize && Math.abs(y - cy) < handleSize) return 'e';
+    
+    // Center (move) - check if inside the box
+    const insideX = x >= left && x <= right;
+    const insideY = y >= top && y <= bottom;
+    if (insideX && insideY) return 'move';
+    
+    return null;
+}
+
+function handleMouseMove(e) {
     const rect = canvas.getBoundingClientRect();
     const x = (e.clientX - rect.left) / canvas.width;
     const y = (e.clientY - rect.top) / canvas.height;
     
-    currentBox = {
-        x_center: (startX + x) / 2,
-        y_center: (startY + y) / 2,
-        width: Math.abs(x - startX),
-        height: Math.abs(y - startY)
-    };
+    // Update cursor based on position
+    if (!isDrawing && !isDragging && selectedAnnotation) {
+        const handle = getHandleAtPosition(x, y, selectedAnnotation);
+        if (handle) {
+            const cursors = {
+                'nw': 'nw-resize', 'ne': 'ne-resize', 'sw': 'sw-resize', 'se': 'se-resize',
+                'n': 'n-resize', 's': 's-resize', 'e': 'e-resize', 'w': 'w-resize',
+                'move': 'move'
+            };
+            canvas.style.cursor = cursors[handle] || 'default';
+        } else {
+            canvas.style.cursor = 'default';
+        }
+    } else if (!isDrawing && !isDragging) {
+        canvas.style.cursor = getAnnotationAtPosition(x, y) ? 'pointer' : 'crosshair';
+    }
     
-    drawCanvas();
+    if (isDragging && selectedAnnotation) {
+        const dx = x - startX;
+        const dy = y - startY;
+        
+        const left = selectedAnnotation.x_center - selectedAnnotation.width / 2;
+        const right = selectedAnnotation.x_center + selectedAnnotation.width / 2;
+        const top = selectedAnnotation.y_center - selectedAnnotation.height / 2;
+        const bottom = selectedAnnotation.y_center + selectedAnnotation.height / 2;
+        
+        if (dragHandle === 'move') {
+            selectedAnnotation.x_center += dx;
+            selectedAnnotation.y_center += dy;
+        } else if (dragHandle === 'nw') {
+            const newLeft = left + dx;
+            const newTop = top + dy;
+            selectedAnnotation.width = right - newLeft;
+            selectedAnnotation.height = bottom - newTop;
+            selectedAnnotation.x_center = (newLeft + right) / 2;
+            selectedAnnotation.y_center = (newTop + bottom) / 2;
+        } else if (dragHandle === 'ne') {
+            const newRight = right + dx;
+            const newTop = top + dy;
+            selectedAnnotation.width = newRight - left;
+            selectedAnnotation.height = bottom - newTop;
+            selectedAnnotation.x_center = (left + newRight) / 2;
+            selectedAnnotation.y_center = (newTop + bottom) / 2;
+        } else if (dragHandle === 'sw') {
+            const newLeft = left + dx;
+            const newBottom = bottom + dy;
+            selectedAnnotation.width = right - newLeft;
+            selectedAnnotation.height = newBottom - top;
+            selectedAnnotation.x_center = (newLeft + right) / 2;
+            selectedAnnotation.y_center = (top + newBottom) / 2;
+        } else if (dragHandle === 'se') {
+            const newRight = right + dx;
+            const newBottom = bottom + dy;
+            selectedAnnotation.width = newRight - left;
+            selectedAnnotation.height = newBottom - top;
+            selectedAnnotation.x_center = (left + newRight) / 2;
+            selectedAnnotation.y_center = (top + newBottom) / 2;
+        } else if (dragHandle === 'n') {
+            const newTop = top + dy;
+            selectedAnnotation.height = bottom - newTop;
+            selectedAnnotation.y_center = (newTop + bottom) / 2;
+        } else if (dragHandle === 's') {
+            const newBottom = bottom + dy;
+            selectedAnnotation.height = newBottom - top;
+            selectedAnnotation.y_center = (top + newBottom) / 2;
+        } else if (dragHandle === 'w') {
+            const newLeft = left + dx;
+            selectedAnnotation.width = right - newLeft;
+            selectedAnnotation.x_center = (newLeft + right) / 2;
+        } else if (dragHandle === 'e') {
+            const newRight = right + dx;
+            selectedAnnotation.width = newRight - left;
+            selectedAnnotation.x_center = (left + newRight) / 2;
+        }
+        
+        startX = x;
+        startY = y;
+        drawCanvas();
+    } else if (isDrawing) {
+        currentBox = {
+            x_center: (startX + x) / 2,
+            y_center: (startY + y) / 2,
+            width: Math.abs(x - startX),
+            height: Math.abs(y - startY)
+        };
+        drawCanvas();
+    }
 }
 
 function handleMouseUp(e) {
+    if (isDragging) {
+        isDragging = false;
+        dragHandle = null;
+        addToHistory();
+        canvas.style.cursor = 'default';
+        return;
+    }
+    
     if (!isDrawing) return;
     
     isDrawing = false;
@@ -239,13 +398,14 @@ function drawCanvas() {
         const cls = classes.find(c => c.id === ann.class_id);
         if (!cls) return;
         
+        const isSelected = selectedAnnotation && selectedAnnotation.id === ann.id;
         const x = (ann.x_center - ann.width / 2) * canvas.width;
         const y = (ann.y_center - ann.height / 2) * canvas.height;
         const w = ann.width * canvas.width;
         const h = ann.height * canvas.height;
         
         ctx.strokeStyle = cls.color;
-        ctx.lineWidth = 2;
+        ctx.lineWidth = isSelected ? 3 : 2;
         ctx.strokeRect(x, y, w, h);
         
         // Draw label
@@ -254,6 +414,24 @@ function drawCanvas() {
         ctx.fillStyle = 'white';
         ctx.font = '14px sans-serif';
         ctx.fillText(cls.name, x + 6, y - 6);
+        
+        // Draw resize handles for selected annotation
+        if (isSelected) {
+            const handleSize = 8;
+            ctx.fillStyle = cls.color;
+            
+            // Corner handles
+            ctx.fillRect(x - handleSize/2, y - handleSize/2, handleSize, handleSize);
+            ctx.fillRect(x + w - handleSize/2, y - handleSize/2, handleSize, handleSize);
+            ctx.fillRect(x - handleSize/2, y + h - handleSize/2, handleSize, handleSize);
+            ctx.fillRect(x + w - handleSize/2, y + h - handleSize/2, handleSize, handleSize);
+            
+            // Edge handles
+            ctx.fillRect(x + w/2 - handleSize/2, y - handleSize/2, handleSize, handleSize);
+            ctx.fillRect(x + w/2 - handleSize/2, y + h - handleSize/2, handleSize, handleSize);
+            ctx.fillRect(x - handleSize/2, y + h/2 - handleSize/2, handleSize, handleSize);
+            ctx.fillRect(x + w - handleSize/2, y + h/2 - handleSize/2, handleSize, handleSize);
+        }
     });
     
     // Draw current box
@@ -282,20 +460,41 @@ function renderAnnotationsList() {
         return;
     }
     
-    list.innerHTML = annotations.map((ann, index) => `
-        <div class="annotation-item">
-            <div class="class-color" style="background: ${classes.find(c => c.id === ann.class_id)?.color}"></div>
-            <span>${ann.class_name}</span>
-            <button class="btn-icon" onclick="deleteAnnotation(${index})">✕</button>
-        </div>
-    `).join('');
+    list.innerHTML = annotations.map((ann, index) => {
+        const isSelected = selectedAnnotation && selectedAnnotation.id === ann.id;
+        return `
+            <div class="annotation-item ${isSelected ? 'selected' : ''}" 
+                 onclick="selectAnnotationFromList(${ann.id})" 
+                 style="cursor: pointer; background: ${isSelected ? 'rgba(124, 58, 237, 0.1)' : ''}; border: ${isSelected ? '1px solid var(--primary-color)' : '1px solid transparent'};">
+                <div class="class-color" style="background: ${classes.find(c => c.id === ann.class_id)?.color}"></div>
+                ${isSelected ? `
+                    <select onchange="changeAnnotationClass(${ann.id}, this.value)" onclick="event.stopPropagation()" style="flex: 1; padding: 0.25rem; border-radius: 0.25rem; border: 1px solid var(--border);">
+                        ${classes.map(cls => `
+                            <option value="${cls.id}" ${cls.id === ann.class_id ? 'selected' : ''}>${cls.name}</option>
+                        `).join('')}
+                    </select>
+                ` : `<span>${ann.class_name}</span>`}
+                <button class="btn-icon" onclick="event.stopPropagation(); deleteAnnotation(${ann.id})">✕</button>
+            </div>
+        `;
+    }).join('');
 }
 
-function deleteAnnotation(index) {
-    annotations.splice(index, 1);
-    addToHistory();
+function selectAnnotationFromList(annId) {
+    selectedAnnotation = annotations.find(a => a.id === annId);
     drawCanvas();
     renderAnnotationsList();
+}
+
+function changeAnnotationClass(annId, newClassId) {
+    const ann = annotations.find(a => a.id === annId);
+    if (ann) {
+        ann.class_id = parseInt(newClassId);
+        ann.class_name = classes.find(c => c.id == newClassId).name;
+        addToHistory();
+        drawCanvas();
+        renderAnnotationsList();
+    }
 }
 
 function addToHistory() {
@@ -422,6 +621,19 @@ async function loadExternalModels() {
     }
 }
 
+async function loadTrainedModels() {
+    try {
+        const projectData = await apiCall(`/api/projects/${PROJECT_ID}`);
+        trainedModels = projectData.training_jobs.filter(job => 
+            job.status === 'completed' && job.model_path
+        );
+        customModels = projectData.custom_models || [];
+        console.log('Loaded models:', { trainedModels, customModels });
+    } catch (error) {
+        console.log('No trained models available');
+    }
+}
+
 function renderAssistClasses() {
     const list = document.getElementById('assistClassesList');
     
@@ -444,22 +656,60 @@ function renderAssistClasses() {
         </div>
     `;
     
-    // Add model selection if external models are available
+    // Add model selection dropdown with trained, custom, and external models
     let modelSelectHtml = '';
-    if (externalModels && externalModels.length > 0) {
+    const hasModels = (trainedModels && trainedModels.length > 0) || 
+                      (customModels && customModels.length > 0) ||
+                      (externalModels && externalModels.length > 0);
+    
+    if (hasModels) {
+        let modelOptions = '';
+        
+        // Add trained models
+        if (trainedModels && trainedModels.length > 0) {
+            modelOptions += '<optgroup label="🎓 Your Trained Models">';
+            modelOptions += trainedModels.map(model => {
+                const modelSizeLabel = {
+                    'n': 'Nano',
+                    's': 'Small',
+                    'm': 'Medium',
+                    'l': 'Large',
+                    'x': 'X-Large'
+                }[model.model_size || 'n'];
+                
+                return `<option value="trained:${model.id}" data-model-type="trained">${model.name} (${modelSizeLabel})</option>`;
+            }).join('');
+            modelOptions += '</optgroup>';
+        }
+        
+        // Add custom uploaded models
+        if (customModels && customModels.length > 0) {
+            modelOptions += '<optgroup label="📤 Your Uploaded Models">';
+            modelOptions += customModels.map(model => 
+                `<option value="custom:${model.id}" data-model-type="custom" data-file-path="${model.file_path}">${model.name}</option>`
+            ).join('');
+            modelOptions += '</optgroup>';
+        }
+        
+        // Add external models from output_models folder
+        if (externalModels && externalModels.length > 0) {
+            modelOptions += '<optgroup label="📦 External Models (output_models/)">';
+            modelOptions += externalModels.map(modelDir => 
+                modelDir.models.map(m => 
+                    `<option value="external:${m.path}" data-classes='${JSON.stringify(m.classes)}' data-model-type="external">${modelDir.model_dir}/${m.name}</option>`
+                ).join('')
+            ).join('');
+            modelOptions += '</optgroup>';
+        }
+        
         modelSelectHtml = `
             <div style="margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border);">
-                <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Model Source:</label>
+                <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Select Model:</label>
                 <select id="modelSourceSelect" style="width: 100%; padding: 0.5rem; border-radius: 0.375rem; border: 1px solid var(--border);">
-                    <option value="trained">Trained Model</option>
-                    ${externalModels.map(modelDir => 
-                        modelDir.models.map(m => 
-                            `<option value="${m.path}" data-classes='${JSON.stringify(m.classes)}' ${selectedExternalModel === m.path ? 'selected' : ''}>${modelDir.model_dir}/${m.name}</option>`
-                        ).join('')
-                    ).join('')}
+                    ${modelOptions}
                 </select>
             </div>
-            <div id="classMappingSection" style="display: ${selectedExternalModel ? 'block' : 'none'}; margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border);">
+            <div id="classMappingSection" style="display: none; margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border);">
                 <h4 style="font-size: 0.875rem; font-weight: 600; margin-bottom: 0.75rem;">Map Model Classes to Your Classes:</h4>
                 <div id="classMappingList"></div>
             </div>
@@ -499,34 +749,62 @@ function renderAssistClasses() {
     // Set up model selection listener
     if (document.getElementById('modelSourceSelect')) {
         document.getElementById('modelSourceSelect').onchange = function() {
-            selectedExternalModel = this.value === 'trained' ? null : this.value;
+            const value = this.value;
+            const [modelType, modelId] = value.split(':');
             
-            if (selectedExternalModel) {
+            if (modelType === 'trained') {
+                // Using a trained model
+                selectedExternalModel = null;
+                document.getElementById('classMappingSection').style.display = 'none';
+                selectedModelInfo = { type: 'trained', id: parseInt(modelId) };
+                classMapping = {};
+            } else if (modelType === 'custom') {
+                // Using a custom uploaded model
+                selectedExternalModel = null;
+                document.getElementById('classMappingSection').style.display = 'none';
+                const selectedOption = this.options[this.selectedIndex];
+                selectedModelInfo = { 
+                    type: 'custom', 
+                    id: parseInt(modelId),
+                    filePath: selectedOption.dataset.filePath 
+                };
+                classMapping = {};
+            } else if (modelType === 'external') {
+                // Using an external model
+                selectedExternalModel = modelId;
+                
                 // Get model classes from data attribute
                 const selectedOption = this.options[this.selectedIndex];
                 const modelClasses = JSON.parse(selectedOption.dataset.classes || '[]');
-                selectedModelInfo = { classes: modelClasses };
+                selectedModelInfo = { type: 'external', classes: modelClasses };
                 
-                // Show class mapping section
+                // Show class mapping section for external models
                 if (modelClasses.length > 0) {
                     document.getElementById('classMappingSection').style.display = 'block';
                     renderClassMapping(modelClasses);
                 } else {
                     document.getElementById('classMappingSection').style.display = 'none';
                 }
-            } else {
-                document.getElementById('classMappingSection').style.display = 'none';
-                selectedModelInfo = null;
-                classMapping = {};
             }
         };
         
-        // Trigger change if already selected
-        if (selectedExternalModel) {
-            const selectElement = document.getElementById('modelSourceSelect');
-            const event = new Event('change');
-            selectElement.dispatchEvent(event);
+        // Set default selection and trigger change to initialize
+        const selectElement = document.getElementById('modelSourceSelect');
+        
+        // Restore previous selection if it exists
+        if (selectedModelInfo) {
+            if (selectedModelInfo.type === 'trained') {
+                selectElement.value = `trained:${selectedModelInfo.id}`;
+            } else if (selectedModelInfo.type === 'custom') {
+                selectElement.value = `custom:${selectedModelInfo.id}`;
+            } else if (selectedModelInfo.type === 'external' && selectedExternalModel) {
+                selectElement.value = `external:${selectedExternalModel}`;
+            }
         }
+        
+        // Trigger change to initialize
+        const event = new Event('change');
+        selectElement.dispatchEvent(event);
     }
 }
 
@@ -621,8 +899,30 @@ async function runSingleLabelAssist() {
                     class_mapping: classMapping
                 })
             });
+        } else if (selectedModelInfo && selectedModelInfo.type === 'trained') {
+            // Use specific trained model
+            const trainedModel = trainedModels.find(m => m.id === selectedModelInfo.id);
+            result = await apiCall(`/api/projects/${PROJECT_ID}/predict`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    image_id: imageData.id,
+                    confidence,
+                    model_path: trainedModel.model_path
+                })
+            });
+        } else if (selectedModelInfo && selectedModelInfo.type === 'custom') {
+            // Use custom uploaded model
+            const customModel = customModels.find(m => m.id === selectedModelInfo.id);
+            result = await apiCall(`/api/projects/${PROJECT_ID}/predict`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    image_id: imageData.id,
+                    confidence,
+                    model_path: customModel.file_path
+                })
+            });
         } else {
-            // Use trained model
+            // Use latest trained model (default behavior)
             result = await apiCall(`/api/projects/${PROJECT_ID}/predict`, {
                 method: 'POST',
                 body: JSON.stringify({
@@ -725,11 +1025,36 @@ async function runAutoLabelAssist() {
 
 function setupKeyboardShortcuts() {
     document.addEventListener('keydown', (e) => {
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+        
+        // Delete or Backspace to delete selected annotation
+        if ((e.key === 'Delete' || e.key === 'Backspace') && selectedAnnotation) {
+            e.preventDefault();
+            deleteAnnotation(selectedAnnotation.id);
+            return;
+        }
+        
+        // Escape to deselect
+        if (e.key === 'Escape' && selectedAnnotation) {
+            selectedAnnotation = null;
+            drawCanvas();
+            renderAnnotationsList();
+            return;
+        }
+        
         // Number keys to select classes
         if (e.key >= '1' && e.key <= '9') {
             const index = parseInt(e.key) - 1;
             if (index < classes.length) {
                 selectClass(classes[index].id);
+                // If an annotation is selected, change its class
+                if (selectedAnnotation) {
+                    selectedAnnotation.class_id = classes[index].id;
+                    selectedAnnotation.class_name = classes[index].name;
+                    addToHistory();
+                    drawCanvas();
+                    renderAnnotationsList();
+                }
             }
         }
         
@@ -758,5 +1083,15 @@ function setupKeyboardShortcuts() {
             saveAnnotations();
         }
     });
+}
+
+function deleteAnnotation(annId) {
+    annotations = annotations.filter(a => a.id !== annId);
+    if (selectedAnnotation && selectedAnnotation.id === annId) {
+        selectedAnnotation = null;
+    }
+    addToHistory();
+    drawCanvas();
+    renderAnnotationsList();
 }
 

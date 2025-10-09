@@ -19,7 +19,7 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 Path(app.config['UPLOAD_FOLDER']).mkdir(exist_ok=True)
 
 # Import models first
-from models import Project, Image, Annotation, Class, DatasetVersion, TrainingJob
+from models import Project, Image, Annotation, Class, DatasetVersion, TrainingJob, CustomModel
 
 # Import routes module
 import routes
@@ -52,9 +52,12 @@ app.route('/api/projects/<int:project_id>/dataset-versions', methods=['POST'])(r
 app.route('/api/projects/<int:project_id>/dataset-versions/<int:version_id>', methods=['DELETE'])(routes.delete_dataset_version)
 app.route('/api/projects/<int:project_id>/train', methods=['POST'])(routes.start_training)
 app.route('/api/training/<int:job_id>', methods=['GET'])(routes.get_training_job)
+app.route('/api/training/<int:job_id>', methods=['DELETE'])(routes.delete_training_job)
 app.route('/api/projects/<int:project_id>/predict', methods=['POST'])(routes.predict_annotations)
 app.route('/api/projects/<int:project_id>/external-models', methods=['GET'])(routes.get_external_models)
 app.route('/api/projects/<int:project_id>/use-external-model', methods=['POST'])(routes.use_external_model)
+app.route('/api/projects/<int:project_id>/custom-models', methods=['POST'])(routes.upload_custom_model)
+app.route('/api/projects/<int:project_id>/custom-models/<int:model_id>', methods=['DELETE'])(routes.delete_custom_model)
 
 if __name__ == '__main__':
     with app.app_context():

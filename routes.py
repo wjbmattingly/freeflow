@@ -1,6 +1,6 @@
 from flask import render_template, request, jsonify, send_from_directory, send_file, current_app
 from database import db
-from models import Project, Image, Annotation, Class, DatasetVersion, TrainingJob
+from models import Project, Image, Annotation, Class, DatasetVersion, TrainingJob, CustomModel
 from werkzeug.utils import secure_filename
 from PIL import Image as PILImage
 import pypdfium2 as pdfium
@@ -105,7 +105,29 @@ def get_project(project_id):
             'id': cls.id,
             'name': cls.name,
             'color': cls.color
-        } for cls in project.classes]
+        } for cls in project.classes],
+        'training_jobs': [{
+            'id': job.id,
+            'name': job.name,
+            'model_size': job.model_size,
+            'status': job.status,
+            'epochs': job.epochs,
+            'batch_size': job.batch_size,
+            'image_size': job.image_size,
+            'dataset_version_id': job.dataset_version_id,
+            'model_path': job.model_path,
+            'created_at': job.created_at.isoformat(),
+            'started_at': job.started_at.isoformat() if job.started_at else None,
+            'completed_at': job.completed_at.isoformat() if job.completed_at else None
+        } for job in project.training_jobs],
+        'custom_models': [{
+            'id': model.id,
+            'name': model.name,
+            'description': model.description,
+            'file_path': model.file_path,
+            'file_size': model.file_size,
+            'created_at': model.created_at.isoformat()
+        } for model in project.custom_models]
     })
 
 def delete_project(project_id):
@@ -465,6 +487,8 @@ def start_training(project_id):
     # Create training job
     job = TrainingJob(
         project_id=project_id,
+        name=data.get('name', f'Model {len(project.training_jobs) + 1}'),
+        model_size=data.get('model_size', 'm'),
         dataset_version_id=data.get('dataset_version_id'),
         epochs=data.get('epochs', 100),
         batch_size=data.get('batch_size', 16),
@@ -503,55 +527,83 @@ def get_training_job(job_id):
         'completed_at': job.completed_at.isoformat() if job.completed_at else None
     })
 
+def delete_training_job(job_id):
+    """Delete a training job"""
+    job = TrainingJob.query.get_or_404(job_id)
+    
+    # Don't allow deleting jobs that are currently training
+    if job.status == 'training':
+        return jsonify({'error': 'Cannot delete a job that is currently training'}), 400
+    
+    db.session.delete(job)
+    db.session.commit()
+    
+    return jsonify({'message': 'Training job deleted successfully'})
+
 def predict_annotations(project_id):
     """Use trained model to predict annotations (Label Assist)"""
     project = Project.query.get_or_404(project_id)
     data = request.json
     image_id = data.get('image_id')
+    model_path = data.get('model_path')
     
-    # Get the latest successful training job
-    job = TrainingJob.query.filter_by(
-        project_id=project_id,
-        status='completed'
-    ).order_by(TrainingJob.completed_at.desc()).first()
+    # Use provided model path or get the latest successful training job
+    if not model_path:
+        job = TrainingJob.query.filter_by(
+            project_id=project_id,
+            status='completed'
+        ).order_by(TrainingJob.completed_at.desc()).first()
+        
+        if not job or not job.model_path:
+            return jsonify({'error': 'No trained model available'}), 400
+        
+        model_path = job.model_path
     
-    if not job or not job.model_path:
-        return jsonify({'error': 'No trained model available'}), 400
+    # Verify model path exists
+    if not os.path.exists(model_path):
+        return jsonify({'error': f'Model file not found: {model_path}'}), 404
     
     image = Image.query.get_or_404(image_id)
     
     # Load model and predict
     from ultralytics import YOLO
-    model = YOLO(job.model_path)
-    
-    results = model.predict(image.filepath, conf=data.get('confidence', 0.5))
-    
-    predictions = []
-    if len(results) > 0:
-        result = results[0]
-        boxes = result.boxes
+    try:
+        model = YOLO(model_path)
+        results = model.predict(image.filepath, conf=data.get('confidence', 0.5), verbose=False)
         
-        for box in boxes:
-            # Convert to normalized coordinates
-            x1, y1, x2, y2 = box.xyxy[0].tolist()
-            x_center = ((x1 + x2) / 2) / image.width
-            y_center = ((y1 + y2) / 2) / image.height
-            width = (x2 - x1) / image.width
-            height = (y2 - y1) / image.height
+        predictions = []
+        if len(results) > 0:
+            result = results[0]
+            boxes = result.boxes
             
-            cls_id = int(box.cls[0])
-            confidence = float(box.conf[0])
-            
-            predictions.append({
-                'class_id': project.classes[cls_id].id,
-                'x_center': x_center,
-                'y_center': y_center,
-                'width': width,
-                'height': height,
-                'confidence': confidence
-            })
-    
-    return jsonify({'predictions': predictions})
+            for box in boxes:
+                # Convert to normalized coordinates
+                x1, y1, x2, y2 = box.xyxy[0].tolist()
+                x_center = ((x1 + x2) / 2) / image.width
+                y_center = ((y1 + y2) / 2) / image.height
+                width = (x2 - x1) / image.width
+                height = (y2 - y1) / image.height
+                
+                cls_id = int(box.cls[0])
+                confidence = float(box.conf[0])
+                
+                # Map model class to project class
+                # Assume model classes are in same order as project classes
+                if cls_id < len(project.classes):
+                    predictions.append({
+                        'class_id': project.classes[cls_id].id,
+                        'x_center': x_center,
+                        'y_center': y_center,
+                        'width': width,
+                        'height': height,
+                        'confidence': confidence
+                    })
+        
+        return jsonify({'predictions': predictions})
+        
+    except Exception as e:
+        print(f"Prediction error: {e}")
+        return jsonify({'error': f'Prediction failed: {str(e)}'}), 500
 
 def get_external_models(project_id):
     """Get list of external models available in output_models folder"""
@@ -595,6 +647,77 @@ def get_external_models(project_id):
                     })
     
     return jsonify({'models': models})
+
+def upload_custom_model(project_id):
+    """Upload a custom model file"""
+    project = Project.query.get_or_404(project_id)
+    
+    if 'model_file' not in request.files:
+        return jsonify({'error': 'No model file provided'}), 400
+    
+    file = request.files['model_file']
+    name = request.form.get('name')
+    description = request.form.get('description', '')
+    
+    if not name:
+        return jsonify({'error': 'Model name is required'}), 400
+    
+    if not file.filename.endswith('.pt'):
+        return jsonify({'error': 'Only .pt files are supported'}), 400
+    
+    # Create custom_models directory
+    models_dir = Path(current_app.config['UPLOAD_FOLDER']) / 'custom_models' / str(project_id)
+    models_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Save file
+    filename = secure_filename(file.filename)
+    filepath = models_dir / filename
+    file.save(filepath)
+    
+    # Get file size
+    file_size_bytes = filepath.stat().st_size
+    if file_size_bytes < 1024:
+        file_size = f"{file_size_bytes} B"
+    elif file_size_bytes < 1024 * 1024:
+        file_size = f"{file_size_bytes / 1024:.1f} KB"
+    elif file_size_bytes < 1024 * 1024 * 1024:
+        file_size = f"{file_size_bytes / (1024 * 1024):.1f} MB"
+    else:
+        file_size = f"{file_size_bytes / (1024 * 1024 * 1024):.2f} GB"
+    
+    # Create database entry
+    custom_model = CustomModel(
+        project_id=project_id,
+        name=name,
+        description=description,
+        file_path=str(filepath),
+        file_size=file_size
+    )
+    
+    db.session.add(custom_model)
+    db.session.commit()
+    
+    return jsonify({
+        'id': custom_model.id,
+        'message': 'Model uploaded successfully'
+    }), 201
+
+def delete_custom_model(project_id, model_id):
+    """Delete a custom model"""
+    model = CustomModel.query.filter_by(id=model_id, project_id=project_id).first_or_404()
+    
+    # Delete file
+    try:
+        filepath = Path(model.file_path)
+        if filepath.exists():
+            filepath.unlink()
+    except Exception as e:
+        print(f"Failed to delete model file: {e}")
+    
+    db.session.delete(model)
+    db.session.commit()
+    
+    return jsonify({'message': 'Custom model deleted successfully'})
 
 def use_external_model(project_id):
     """Use an external model for predictions with class mapping"""

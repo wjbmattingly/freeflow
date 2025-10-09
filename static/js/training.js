@@ -115,17 +115,26 @@ async function loadDatasetVersions() {
 }
 
 async function startTraining() {
+    const modelName = document.getElementById('modelName').value.trim();
+    const modelSize = document.getElementById('modelSize').value;
     const epochs = parseInt(document.getElementById('epochs').value);
     const batchSize = parseInt(document.getElementById('batchSize').value);
     const imageSize = parseInt(document.getElementById('imageSize').value);
     const datasetVersionId = selectedVersionId || document.getElementById('datasetVersionSelect')?.value || null;
     
-    console.log('🚀 Starting training with config:', { epochs, batchSize, imageSize, datasetVersionId });
+    if (!modelName) {
+        showToast('Please enter a model name', 'error');
+        return;
+    }
+    
+    console.log('🚀 Starting training with config:', { modelName, modelSize, epochs, batchSize, imageSize, datasetVersionId });
     
     try {
         const result = await apiCall(`/api/projects/${PROJECT_ID}/train`, {
             method: 'POST',
             body: JSON.stringify({
+                name: modelName,
+                model_size: modelSize,
                 epochs,
                 batch_size: batchSize,
                 image_size: imageSize,
@@ -434,23 +443,42 @@ async function loadTrainingHistory() {
             const isActive = job.id === currentJobId;
             const isRunning = job.status === 'training' || job.status === 'pending';
             
+            const modelSizeLabel = {
+                'n': 'Nano',
+                's': 'Small',
+                'm': 'Medium',
+                'l': 'Large',
+                'x': 'X-Large'
+            }[job.model_size || 'n'];
+            
             return `
-                <div class="history-item ${isActive ? 'active' : ''}" onclick="viewTrainingJob(${job.id})" style="cursor: pointer;">
-                    <div class="history-header">
-                        <div style="display: flex; align-items: center; gap: 0.5rem;">
-                            <span class="status-badge ${statusClass}">${statusIcon} ${job.status}</span>
-                            <span style="font-weight: 600;">Job #${job.id}</span>
-                            ${isRunning ? '<span style="color: var(--warning); font-size: 0.75rem;">● LIVE</span>' : ''}
+                <div class="history-item ${isActive ? 'active' : ''}" style="position: relative;">
+                    <div onclick="viewTrainingJob(${job.id})" style="cursor: pointer;">
+                        <div class="history-header">
+                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                <span class="status-badge ${statusClass}">${statusIcon} ${job.status}</span>
+                                <span style="font-weight: 600;">${job.name || `Job #${job.id}`}</span>
+                                ${isRunning ? '<span style="color: var(--warning); font-size: 0.75rem;">● LIVE</span>' : ''}
+                            </div>
+                            <span class="history-date">${new Date(job.created_at).toLocaleString()}</span>
                         </div>
-                        <span class="history-date">${new Date(job.created_at).toLocaleString()}</span>
+                        <div class="history-details">
+                            <span>📏 ${modelSizeLabel}</span>
+                            <span>🔁 ${job.epochs} epochs</span>
+                            <span>📦 Batch ${job.batch_size}</span>
+                            <span>🖼️ ${job.image_size}px</span>
+                            ${job.dataset_version_id ? '<span>📌 Versioned</span>' : '<span>🔀 Auto-split</span>'}
+                        </div>
+                        ${isActive ? '<div style="margin-top: 0.5rem; color: var(--primary-color); font-size: 0.75rem;">👁️ Currently viewing</div>' : ''}
                     </div>
-                    <div class="history-details">
-                        <span>Epochs: ${job.epochs}</span>
-                        <span>Batch: ${job.batch_size}</span>
-                        <span>Size: ${job.image_size}px</span>
-                        ${job.dataset_version_id ? '<span>📦 Versioned</span>' : '<span>🔀 Auto-split</span>'}
-                    </div>
-                    ${isActive ? '<div style="margin-top: 0.5rem; color: var(--primary-color); font-size: 0.75rem;">👁️ Currently viewing</div>' : ''}
+                    ${!isRunning ? `
+                        <button 
+                            onclick="event.stopPropagation(); deleteTrainingJob(${job.id})" 
+                            style="position: absolute; top: 1rem; right: 1rem; background: var(--error); color: white; border: none; padding: 0.25rem 0.5rem; border-radius: 0.25rem; cursor: pointer; font-size: 0.75rem;"
+                            title="Delete job">
+                            🗑️
+                        </button>
+                    ` : ''}
                 </div>
             `;
         }).join('');
@@ -519,6 +547,32 @@ function displayJobMetrics(metrics) {
             document.getElementById('valLoss').textContent = lastEpoch.val_loss.toFixed(4);
             document.getElementById('map50').textContent = (lastEpoch.map50 || 0).toFixed(4);
         }
+    }
+}
+
+async function deleteTrainingJob(jobId) {
+    if (!confirm(`Delete training job #${jobId}? This cannot be undone.`)) {
+        return;
+    }
+    
+    try {
+        await apiCall(`/api/training/${jobId}`, {
+            method: 'DELETE'
+        });
+        
+        showToast('Training job deleted', 'success');
+        
+        // If we were viewing this job, clear the charts
+        if (currentJobId === jobId) {
+            currentJobId = null;
+            document.getElementById('trainingCharts').style.display = 'none';
+            document.getElementById('trainingStatus').innerHTML = '<p class="empty-state">No training in progress</p>';
+        }
+        
+        await loadTrainingHistory();
+        
+    } catch (error) {
+        showToast(error.message || 'Failed to delete training job', 'error');
     }
 }
 
