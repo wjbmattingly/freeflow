@@ -356,6 +356,206 @@ def extract_images_from_pdf(pdf_file, output_folder, batch_id):
     
     return pdf_images
 
+def import_from_roboflow(project_id):
+    """Import dataset from Roboflow"""
+    project = Project.query.get_or_404(project_id)
+    
+    data = request.json
+    api_key = data.get('api_key')
+    workspace = data.get('workspace')
+    project_name = data.get('project_name')
+    version = data.get('version')
+    
+    if not all([api_key, workspace, project_name, version]):
+        return jsonify({'error': 'Missing required fields'}), 400
+    
+    try:
+        from roboflow import Roboflow
+        import shutil
+        import zipfile
+        
+        print(f"🔄 Importing from Roboflow: {workspace}/{project_name} v{version}")
+        
+        # Initialize Roboflow
+        rf = Roboflow(api_key=api_key)
+        rf_workspace = rf.workspace(workspace)
+        rf_project = rf_workspace.project(project_name)
+        rf_version = rf_project.version(version)
+        
+        # Download dataset (it will be saved to a temporary directory)
+        from flask import current_app
+        temp_dir = os.path.join(current_app.config['UPLOAD_FOLDER'], 'temp_roboflow', str(uuid.uuid4()))
+        os.makedirs(temp_dir, exist_ok=True)
+        
+        print(f"📥 Downloading dataset to {temp_dir}...")
+        
+        # Roboflow downloads to current directory / specified location
+        # Let's use the current working directory approach
+        original_cwd = os.getcwd()
+        os.chdir(temp_dir)
+        
+        try:
+            dataset = rf_version.download("yolov11")
+            dataset_path = dataset.location
+            print(f"🔍 Dataset downloaded to: {dataset_path}")
+        finally:
+            os.chdir(original_cwd)
+        
+        # Now find all files in temp_dir recursively
+        print(f"🔍 Searching for data.yaml in {temp_dir}...")
+        data_yaml_path = None
+        
+        for root, dirs, files in os.walk(temp_dir):
+            if 'data.yaml' in files:
+                data_yaml_path = os.path.join(root, 'data.yaml')
+                dataset_path = root
+                print(f"✅ Found data.yaml at: {data_yaml_path}")
+                break
+        
+        if not data_yaml_path:
+            raise FileNotFoundError(f"Could not find data.yaml in downloaded dataset. Contents: {os.listdir(temp_dir)}")
+        
+        batch_id = str(uuid.uuid4())
+        project_folder = os.path.join(current_app.config['UPLOAD_FOLDER'], str(project_id))
+        os.makedirs(project_folder, exist_ok=True)
+        
+        # Load data.yaml to get class names
+        print(f"🔍 Loading data.yaml from: {data_yaml_path}")
+        
+        import yaml
+        with open(data_yaml_path, 'r') as f:
+            dataset_config = yaml.safe_load(f)
+        
+        class_names = dataset_config.get('names', [])
+        print(f"📋 Found {len(class_names)} classes: {class_names}")
+        
+        # Create or map classes
+        class_mapping = {}  # Maps YOLO class index to database class ID
+        existing_classes = {cls.name: cls for cls in project.classes}
+        
+        for idx, class_name in enumerate(class_names):
+            if class_name in existing_classes:
+                class_mapping[idx] = existing_classes[class_name].id
+            else:
+                # Create new class
+                import random
+                new_class = Class(
+                    name=class_name,
+                    color=f"#{random.randint(0, 0xFFFFFF):06x}",
+                    project_id=project_id
+                )
+                db.session.add(new_class)
+                db.session.flush()  # Get the ID
+                class_mapping[idx] = new_class.id
+                print(f"✨ Created new class: {class_name}")
+        
+        db.session.commit()
+        
+        # Import images and annotations from all splits
+        total_images = 0
+        total_annotations = 0
+        
+        for split in ['train', 'valid', 'test']:
+            split_dir = os.path.join(dataset_path, split)
+            if not os.path.exists(split_dir):
+                continue
+            
+            images_dir = os.path.join(split_dir, 'images')
+            labels_dir = os.path.join(split_dir, 'labels')
+            
+            if not os.path.exists(images_dir):
+                continue
+            
+            print(f"📂 Processing {split} split...")
+            
+            for img_filename in os.listdir(images_dir):
+                if not img_filename.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp')):
+                    continue
+                
+                img_path = os.path.join(images_dir, img_filename)
+                
+                # Copy image to project folder
+                dest_filename = f"{uuid.uuid4()}_{img_filename}"
+                dest_path = os.path.join(project_folder, dest_filename)
+                shutil.copy2(img_path, dest_path)
+                
+                # Get image dimensions
+                with PILImage.open(dest_path) as img:
+                    width, height = img.size
+                
+                # Create database entry
+                image = Image(
+                    filename=f"{split}_{img_filename}",
+                    filepath=dest_path,
+                    width=width,
+                    height=height,
+                    batch_id=batch_id,
+                    project_id=project_id,
+                    status='completed'  # Mark as annotated since we're importing annotations
+                )
+                db.session.add(image)
+                db.session.flush()  # Get the ID
+                total_images += 1
+                
+                # Load annotations
+                label_filename = os.path.splitext(img_filename)[0] + '.txt'
+                label_path = os.path.join(labels_dir, label_filename)
+                
+                if os.path.exists(label_path):
+                    with open(label_path, 'r') as f:
+                        for line in f:
+                            parts = line.strip().split()
+                            if len(parts) >= 5:
+                                class_idx = int(parts[0])
+                                x_center = float(parts[1])
+                                y_center = float(parts[2])
+                                box_width = float(parts[3])
+                                box_height = float(parts[4])
+                                
+                                if class_idx in class_mapping:
+                                    annotation = Annotation(
+                                        image_id=image.id,
+                                        class_id=class_mapping[class_idx],
+                                        x_center=x_center,
+                                        y_center=y_center,
+                                        width=box_width,
+                                        height=box_height
+                                    )
+                                    db.session.add(annotation)
+                                    total_annotations += 1
+        
+        # Clean up temp directory
+        try:
+            shutil.rmtree(temp_dir)
+        except Exception as e:
+            print(f"⚠️ Failed to clean up temp directory: {e}")
+        
+        # Update project timestamp
+        project.updated_at = datetime.utcnow()
+        
+        # Set first uploaded image as project thumbnail if no thumbnail exists
+        if not project.thumbnail_image_id and not project.thumbnail_path:
+            first_image = Image.query.filter_by(project_id=project_id, batch_id=batch_id).order_by(Image.uploaded_at).first()
+            if first_image:
+                project.thumbnail_image_id = first_image.id
+        
+        db.session.commit()
+        
+        print(f"✅ Import complete: {total_images} images, {total_annotations} annotations")
+        
+        return jsonify({
+            'message': f'Successfully imported {total_images} images with {total_annotations} annotations',
+            'images_count': total_images,
+            'annotations_count': total_annotations,
+            'batch_id': batch_id
+        })
+        
+    except Exception as e:
+        print(f"❌ Roboflow import failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Import failed: {str(e)}'}), 500
+
 def delete_project_images(project_id):
     """Delete multiple images from a project"""
     project = Project.query.get_or_404(project_id)

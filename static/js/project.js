@@ -642,6 +642,92 @@ async function handleFiles(files) {
     }
 }
 
+// ==================== ROBOFLOW IMPORT ====================
+
+function showRoboflowImportModal() {
+    document.getElementById('roboflowImportModal').classList.add('active');
+}
+
+function closeRoboflowImportModal() {
+    const modal = document.getElementById('roboflowImportModal');
+    modal.classList.remove('active');
+    
+    // Reset form
+    document.getElementById('roboflowApiKey').value = '';
+    document.getElementById('roboflowWorkspace').value = '';
+    document.getElementById('roboflowProject').value = '';
+    document.getElementById('roboflowVersion').value = '';
+    document.getElementById('roboflowImportProgress').style.display = 'none';
+    document.getElementById('roboflowProgressBar').style.width = '0%';
+}
+
+async function importFromRoboflow() {
+    const apiKey = document.getElementById('roboflowApiKey').value.trim();
+    const workspace = document.getElementById('roboflowWorkspace').value.trim();
+    const projectName = document.getElementById('roboflowProject').value.trim();
+    const version = document.getElementById('roboflowVersion').value.trim();
+    
+    // Validate inputs
+    if (!apiKey || !workspace || !projectName || !version) {
+        showToast('Please fill in all fields', 'error');
+        return;
+    }
+    
+    // Show progress
+    const progressDiv = document.getElementById('roboflowImportProgress');
+    const statusText = document.getElementById('roboflowImportStatus');
+    const progressBar = document.getElementById('roboflowProgressBar');
+    const importBtn = document.getElementById('roboflowImportBtn');
+    
+    progressDiv.style.display = 'block';
+    statusText.textContent = 'Connecting to Roboflow...';
+    progressBar.style.width = '10%';
+    importBtn.disabled = true;
+    
+    try {
+        // Simulate progress updates
+        setTimeout(() => {
+            statusText.textContent = 'Downloading dataset...';
+            progressBar.style.width = '30%';
+        }, 500);
+        
+        setTimeout(() => {
+            statusText.textContent = 'Processing images and annotations...';
+            progressBar.style.width = '60%';
+        }, 2000);
+        
+        const response = await apiCall(`/api/projects/${PROJECT_ID}/import-roboflow`, {
+            method: 'POST',
+            body: JSON.stringify({
+                api_key: apiKey,
+                workspace: workspace,
+                project_name: projectName,
+                version: parseInt(version)
+            })
+        });
+        
+        progressBar.style.width = '100%';
+        statusText.textContent = 'Import complete!';
+        
+        showToast(`Successfully imported ${response.images_count} images with ${response.annotations_count} annotations!`, 'success');
+        
+        // Close modal and reload data
+        setTimeout(async () => {
+            closeRoboflowImportModal();
+            await loadImages();
+            await loadClasses();
+        }, 1000);
+        
+    } catch (error) {
+        console.error('Import failed:', error);
+        showToast(error.message || 'Failed to import dataset from Roboflow', 'error');
+        progressDiv.style.display = 'none';
+        importBtn.disabled = false;
+    }
+}
+
+// ==================== CLASS MANAGEMENT ====================
+
 function showAddClassModal() {
     document.getElementById('addClassModal').classList.add('active');
 }
