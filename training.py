@@ -66,25 +66,49 @@ def train_yolo_model(job_id, socketio):
             def on_train_epoch_end(trainer):
                 """Callback function to emit progress after each epoch"""
                 try:
-                    metrics = trainer.metrics
                     epoch = trainer.epoch + 1
                     
-                    # Extract metrics safely
-                    train_loss = float(metrics.get('train/box_loss', 0))
-                    val_loss = float(metrics.get('val/box_loss', 0))
+                    # Debug: print available metrics
+                    if epoch == 1:
+                        print(f"🔍 Available metrics: {list(trainer.metrics.keys())}")
+                    
+                    # Try to get loss components from the validator results
+                    # YOLO stores losses in trainer.loss_items or trainer.tloss
+                    train_box_loss = 0
+                    train_cls_loss = 0
+                    train_dfl_loss = 0
+                    
+                    # Try to extract from loss_items (numpy array: [box, cls, dfl])
+                    if hasattr(trainer, 'loss_items') and trainer.loss_items is not None:
+                        loss_items = trainer.loss_items
+                        if len(loss_items) >= 3:
+                            train_box_loss = float(loss_items[0])
+                            train_cls_loss = float(loss_items[1])
+                            train_dfl_loss = float(loss_items[2])
+                    
+                    # Extract validation metrics from trainer.metrics
+                    metrics = trainer.metrics
+                    val_box_loss = float(metrics.get('val/box_loss', 0))
+                    val_cls_loss = float(metrics.get('val/cls_loss', 0))
+                    val_dfl_loss = float(metrics.get('val/dfl_loss', 0))
+                    
                     map50 = float(metrics.get('metrics/mAP50(B)', 0))
                     precision = float(metrics.get('metrics/precision(B)', 0))
                     recall = float(metrics.get('metrics/recall(B)', 0))
                     lr = float(trainer.optimizer.param_groups[0]['lr'])
                     
-                    print(f"📊 Epoch {epoch}/{job.epochs}: Loss={train_loss:.4f}, mAP={map50:.4f}")
+                    print(f"📊 Epoch {epoch}/{job.epochs}: Box={train_box_loss:.4f}, Cls={train_cls_loss:.4f}, DFL={train_dfl_loss:.4f}, mAP={map50:.4f}")
                     
                     socketio.emit('training_progress', {
                         'job_id': job.id,
                         'epoch': epoch,
                         'total_epochs': job.epochs,
-                        'train_loss': train_loss,
-                        'val_loss': val_loss,
+                        'train_box_loss': train_box_loss,
+                        'train_cls_loss': train_cls_loss,
+                        'train_dfl_loss': train_dfl_loss,
+                        'val_box_loss': val_box_loss,
+                        'val_cls_loss': val_cls_loss,
+                        'val_dfl_loss': val_dfl_loss,
                         'map50': map50,
                         'precision': precision,
                         'recall': recall,
@@ -92,6 +116,8 @@ def train_yolo_model(job_id, socketio):
                     })
                 except Exception as e:
                     print(f"Error in progress callback: {e}")
+                    import traceback
+                    traceback.print_exc()
             
             # Add callbacks
             model.add_callback('on_train_epoch_end', on_train_epoch_end)
@@ -139,16 +165,8 @@ def train_yolo_model(job_id, socketio):
                         metrics_data['val_loss'].append(float(row['val/box_loss']) if 'val/box_loss' in row else 0)
                         metrics_data['map50'].append(float(row['metrics/mAP50(B)']) if 'metrics/mAP50(B)' in row else 0)
                         metrics_data['map50_95'].append(float(row['metrics/mAP50-95(B)']) if 'metrics/mAP50-95(B)' in row else 0)
-                        
-                        # Emit progress updates
-                        socketio.emit('training_progress', {
-                            'job_id': job.id,
-                            'epoch': int(row['epoch']) if 'epoch' in row else idx + 1,
-                            'total_epochs': job.epochs,
-                            'train_loss': float(row['train/box_loss']) if 'train/box_loss' in row else 0,
-                            'val_loss': float(row['val/box_loss']) if 'val/box_loss' in row else 0,
-                            'map50': float(row['metrics/mAP50(B)']) if 'metrics/mAP50(B)' in row else 0
-                        })
+                    
+                    print(f"📊 Saved {len(metrics_data['epochs'])} epochs of metrics data")
             
             # Save model path
             model_path = os.path.join(

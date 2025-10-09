@@ -12,8 +12,12 @@ let selectedVersionId = null;
 let trainingJobs = [];
 let chartData = {
     epochs: [],
-    trainLoss: [],
-    valLoss: [],
+    trainBoxLoss: [],
+    trainClsLoss: [],
+    trainDflLoss: [],
+    valBoxLoss: [],
+    valClsLoss: [],
+    valDflLoss: [],
     map50: [],
     precision: [],
     recall: [],
@@ -171,14 +175,21 @@ function updateTrainingStatus(message) {
 function updateTrainingProgress(data) {
     document.getElementById('currentEpoch').textContent = 
         `${data.epoch} / ${data.total_epochs}`;
-    document.getElementById('trainLoss').textContent = data.train_loss.toFixed(4);
-    document.getElementById('valLoss').textContent = data.val_loss.toFixed(4);
+    document.getElementById('trainBoxLoss').textContent = (data.train_box_loss || 0).toFixed(4);
+    document.getElementById('trainClsLoss').textContent = (data.train_cls_loss || 0).toFixed(4);
+    document.getElementById('trainDflLoss').textContent = (data.train_dfl_loss || 0).toFixed(4);
+    document.getElementById('valBoxLoss').textContent = (data.val_box_loss || 0).toFixed(4);
+    document.getElementById('valClsLoss').textContent = (data.val_cls_loss || 0).toFixed(4);
     document.getElementById('map50').textContent = (data.map50 || 0).toFixed(4);
     
     // Update chart data arrays
     chartData.epochs.push(data.epoch);
-    chartData.trainLoss.push(data.train_loss);
-    chartData.valLoss.push(data.val_loss);
+    chartData.trainBoxLoss.push(data.train_box_loss || 0);
+    chartData.trainClsLoss.push(data.train_cls_loss || 0);
+    chartData.trainDflLoss.push(data.train_dfl_loss || 0);
+    chartData.valBoxLoss.push(data.val_box_loss || 0);
+    chartData.valClsLoss.push(data.val_cls_loss || 0);
+    chartData.valDflLoss.push(data.val_dfl_loss || 0);
     chartData.map50.push(data.map50 || 0);
     chartData.precision.push(data.precision || 0);
     chartData.recall.push(data.recall || 0);
@@ -191,8 +202,13 @@ function updateTrainingProgress(data) {
 function handleTrainingComplete(data) {
     showToast('Training job #' + data.job_id + ' completed!', 'success');
     document.getElementById('trainingStatus').innerHTML = 
-        `<p style="color: var(--success);">✅ Training complete! (Job #${data.job_id})</p>
-         <p>Model saved to: ${data.model_path || 'output_models'}</p>`;
+        `<div style="text-align: center;">
+            <p style="color: var(--success); font-size: 1.25rem; font-weight: 600; margin-bottom: 0.5rem;">✅ Training Complete!</p>
+            <p style="color: var(--text-secondary); margin-bottom: 1rem;">Model saved to: ${data.model_path || 'output_models'}</p>
+            <button class="btn btn-primary" onclick="location.href='/project/${PROJECT_ID}/model/${data.job_id}'" style="padding: 0.75rem 2rem; font-size: 1rem;">
+                📊 View Model Details
+            </button>
+        </div>`;
     
     activeJobIds.delete(data.job_id);
     loadTrainingHistory();
@@ -212,8 +228,12 @@ function initializeCharts() {
     // Clear existing data
     chartData = {
         epochs: [],
-        trainLoss: [],
-        valLoss: [],
+        trainBoxLoss: [],
+        trainClsLoss: [],
+        trainDflLoss: [],
+        valBoxLoss: [],
+        valClsLoss: [],
+        valDflLoss: [],
         map50: [],
         precision: [],
         recall: [],
@@ -256,7 +276,7 @@ function initializeCharts() {
         }
     };
     
-    // Loss Chart
+    // Loss Chart (showing detailed loss components)
     const lossCtx = document.getElementById('lossChart').getContext('2d');
     lossChart = new Chart(lossCtx, {
         type: 'line',
@@ -264,7 +284,7 @@ function initializeCharts() {
             labels: [],
             datasets: [
                 {
-                    label: 'Train Loss',
+                    label: 'Box Loss',
                     data: [],
                     borderColor: '#EF4444',
                     backgroundColor: 'rgba(239, 68, 68, 0.1)',
@@ -273,13 +293,42 @@ function initializeCharts() {
                     pointRadius: 2
                 },
                 {
-                    label: 'Val Loss',
+                    label: 'Class Loss',
                     data: [],
-                    borderColor: '#3B82F6',
-                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    borderColor: '#F59E0B',
+                    backgroundColor: 'rgba(245, 158, 11, 0.1)',
                     borderWidth: 2,
                     tension: 0.4,
                     pointRadius: 2
+                },
+                {
+                    label: 'DFL Loss',
+                    data: [],
+                    borderColor: '#8B5CF6',
+                    backgroundColor: 'rgba(139, 92, 246, 0.1)',
+                    borderWidth: 2,
+                    tension: 0.4,
+                    pointRadius: 2
+                },
+                {
+                    label: 'Val Box Loss',
+                    data: [],
+                    borderColor: '#3B82F6',
+                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    borderWidth: 1,
+                    tension: 0.4,
+                    pointRadius: 1,
+                    borderDash: [5, 5]
+                },
+                {
+                    label: 'Val Class Loss',
+                    data: [],
+                    borderColor: '#10B981',
+                    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                    borderWidth: 1,
+                    tension: 0.4,
+                    pointRadius: 1,
+                    borderDash: [5, 5]
                 }
             ]
         },
@@ -405,7 +454,7 @@ function updateCharts() {
     
     // Update all charts with current data
     const charts = [
-        { chart: lossChart, data: [chartData.trainLoss, chartData.valLoss] },
+        { chart: lossChart, data: [chartData.trainBoxLoss, chartData.trainClsLoss, chartData.trainDflLoss, chartData.valBoxLoss, chartData.valClsLoss] },
         { chart: mapChart, data: [chartData.map50] },
         { chart: precisionRecallChart, data: [chartData.precision, chartData.recall] },
         { chart: lrChart, data: [chartData.lr] }

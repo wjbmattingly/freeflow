@@ -94,18 +94,30 @@
             </div>
 
             <div id="trainingCharts" style="display: none;">
-                <div class="metrics-grid" style="margin-bottom: 1.5rem;">
+                <div class="metrics-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
                     <div class="metric-card">
                         <h4>Current Epoch</h4>
                         <p id="currentEpoch">0 / 0</p>
                     </div>
                     <div class="metric-card">
-                        <h4>Train Loss</h4>
-                        <p id="trainLoss">0.000</p>
+                        <h4>Box Loss</h4>
+                        <p id="trainBoxLoss">0.000</p>
                     </div>
                     <div class="metric-card">
-                        <h4>Val Loss</h4>
-                        <p id="valLoss">0.000</p>
+                        <h4>Class Loss</h4>
+                        <p id="trainClsLoss">0.000</p>
+                    </div>
+                    <div class="metric-card">
+                        <h4>DFL Loss</h4>
+                        <p id="trainDflLoss">0.000</p>
+                    </div>
+                    <div class="metric-card">
+                        <h4>Val Box Loss</h4>
+                        <p id="valBoxLoss">0.000</p>
+                    </div>
+                    <div class="metric-card">
+                        <h4>Val Class Loss</h4>
+                        <p id="valClsLoss">0.000</p>
                     </div>
                     <div class="metric-card">
                         <h4>mAP@50</h4>
