@@ -2,6 +2,8 @@
 
 let canvas, ctx;
 let images = [];
+let allImages = [];
+let currentFilter = 'all'; // 'all', 'annotated', 'unannotated'
 let currentImageIndex = 0;
 let currentImage = null;
 let classes = [];
@@ -18,6 +20,7 @@ let labelAssistConfig = {
     confidence: 0.5,
     clearExisting: true
 };
+let autoSaveEnabled = false;
 let annotations = [];
 let isDrawing = false;
 let startX, startY;
@@ -33,6 +36,10 @@ let historyIndex = -1;
 document.addEventListener('DOMContentLoaded', () => {
     canvas = document.getElementById('annotationCanvas');
     ctx = canvas.getContext('2d');
+    
+    // Get filter from URL parameter
+    const urlParams = new URLSearchParams(window.location.search);
+    currentFilter = urlParams.get('filter') || 'all';
     
     loadClasses();
     loadImages();
@@ -78,16 +85,40 @@ function selectClass(classId) {
 async function loadImages() {
     try {
         const data = await apiCall(`/api/projects/${PROJECT_ID}/images`);
-        images = [];
+        allImages = [];
         
         data.batches.forEach(batch => {
-            images.push(...batch.images);
+            allImages.push(...batch.images);
         });
         
-        if (images.length > 0) {
-            loadImage(0);
+        // Apply filter
+        if (currentFilter === 'all') {
+            images = [...allImages];
+        } else if (currentFilter === 'annotated') {
+            images = allImages.filter(img => img.status === 'completed');
+        } else if (currentFilter === 'unannotated') {
+            images = allImages.filter(img => img.status !== 'completed');
+        }
+        
+        if (images.length === 0) {
+            showToast(`No ${currentFilter} images to annotate`, 'error');
+            return;
+        }
+        
+        // Check if specific image ID is provided in URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const imageId = urlParams.get('image');
+        
+        if (imageId) {
+            const index = images.findIndex(img => img.id == imageId);
+            if (index !== -1) {
+                loadImage(index);
+            } else {
+                // Image not in filtered list, load first image
+                loadImage(0);
+            }
         } else {
-            showToast('No images to annotate', 'error');
+            loadImage(0);
         }
         
         updateImageCounter();
@@ -116,7 +147,7 @@ async function loadImage(index) {
             renderAnnotationsList();
             
             // Auto-run label assist if enabled
-            if (labelAssistEnabled && labelAssistConfig.modelPath) {
+            if (labelAssistEnabled && (labelAssistConfig.modelPath || labelAssistConfig.modelType)) {
                 await runAutoLabelAssist();
             }
         };
@@ -521,7 +552,7 @@ function redo() {
     }
 }
 
-async function saveAnnotations() {
+async function saveAnnotations(autoNavigate = true) {
     try {
         const imageData = images[currentImageIndex];
         
@@ -539,26 +570,57 @@ async function saveAnnotations() {
             })
         });
         
-        showToast('Annotations saved!', 'success');
+        // Update image status in local array
+        if (images[currentImageIndex]) {
+            images[currentImageIndex].status = 'completed';
+        }
         
-        // Move to next image
-        if (currentImageIndex < images.length - 1) {
+        if (!autoSaveEnabled) {
+            showToast('Annotations saved!', 'success');
+        }
+        
+        // Move to next image only if requested and not auto-saving
+        if (autoNavigate && !autoSaveEnabled && currentImageIndex < images.length - 1) {
             nextImage();
         }
     } catch (error) {
         showToast('Failed to save annotations', 'error');
+        throw error; // Re-throw to prevent navigation on save failure
     }
 }
 
-function previousImage() {
+async function previousImage() {
     if (currentImageIndex > 0) {
+        if (autoSaveEnabled) {
+            try {
+                await saveAnnotations(false);
+            } catch (error) {
+                return; // Don't navigate if save failed
+            }
+        }
         loadImage(currentImageIndex - 1);
     }
 }
 
-function nextImage() {
+async function nextImage() {
     if (currentImageIndex < images.length - 1) {
+        if (autoSaveEnabled) {
+            try {
+                await saveAnnotations(false);
+            } catch (error) {
+                return; // Don't navigate if save failed
+            }
+        }
         loadImage(currentImageIndex + 1);
+    }
+}
+
+function toggleAutoSave() {
+    autoSaveEnabled = document.getElementById('autoSaveCheckbox').checked;
+    if (autoSaveEnabled) {
+        showToast('Auto-save enabled! 💾', 'success');
+    } else {
+        showToast('Auto-save disabled', 'info');
     }
 }
 
@@ -852,9 +914,19 @@ async function runLabelAssist() {
     if (enablePersistent) {
         // Enable persistent mode
         labelAssistEnabled = true;
-        labelAssistConfig.modelPath = selectedExternalModel || 'trained';
         labelAssistConfig.confidence = document.getElementById('confidenceSlider').value / 100;
         labelAssistConfig.clearExisting = document.getElementById('clearExistingAnnotations').checked;
+        
+        // Store the current model selection
+        if (selectedExternalModel) {
+            labelAssistConfig.modelPath = selectedExternalModel;
+            labelAssistConfig.modelType = 'external';
+        } else if (selectedModelInfo) {
+            labelAssistConfig.modelType = selectedModelInfo.type;
+            labelAssistConfig.modelInfo = selectedModelInfo;
+        } else {
+            labelAssistConfig.modelType = 'latest';
+        }
         
         // Update button appearance
         const assistBtn = document.getElementById('assistBtn');
@@ -962,6 +1034,13 @@ async function runAutoLabelAssist() {
     try {
         const imageData = images[currentImageIndex];
         
+        console.log('🤖 Running auto label assist:', {
+            modelType: labelAssistConfig.modelType,
+            modelInfo: labelAssistConfig.modelInfo,
+            customModelsCount: customModels.length,
+            trainedModelsCount: trainedModels.length
+        });
+        
         // Clear existing annotations if configured
         if (labelAssistConfig.clearExisting) {
             annotations = [];
@@ -969,8 +1048,10 @@ async function runAutoLabelAssist() {
         
         let result;
         
-        if (labelAssistConfig.modelPath !== 'trained') {
-            // Use external model
+        // Use the same logic as runSingleLabelAssist but with stored config
+        if (labelAssistConfig.modelType === 'external') {
+            // Use external model with class mapping
+            console.log('Using external model:', labelAssistConfig.modelPath);
             result = await apiCall(`/api/projects/${PROJECT_ID}/use-external-model`, {
                 method: 'POST',
                 body: JSON.stringify({
@@ -980,8 +1061,44 @@ async function runAutoLabelAssist() {
                     class_mapping: classMapping
                 })
             });
+        } else if (labelAssistConfig.modelType === 'trained' && labelAssistConfig.modelInfo) {
+            // Use specific trained model
+            const trainedModel = trainedModels.find(m => m.id === labelAssistConfig.modelInfo.id);
+            console.log('Using trained model:', trainedModel ? trainedModel.name : 'NOT FOUND');
+            if (trainedModel) {
+                result = await apiCall(`/api/projects/${PROJECT_ID}/predict`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        image_id: imageData.id,
+                        confidence: labelAssistConfig.confidence,
+                        model_path: trainedModel.model_path
+                    })
+                });
+            } else {
+                console.error('Trained model not found!');
+                return;
+            }
+        } else if (labelAssistConfig.modelType === 'custom' && labelAssistConfig.modelInfo) {
+            // Use custom uploaded model
+            const customModel = customModels.find(m => m.id === labelAssistConfig.modelInfo.id);
+            console.log('Using custom model:', customModel ? customModel.name : 'NOT FOUND', 'Looking for ID:', labelAssistConfig.modelInfo.id);
+            console.log('Available custom models:', customModels);
+            if (customModel) {
+                result = await apiCall(`/api/projects/${PROJECT_ID}/predict`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        image_id: imageData.id,
+                        confidence: labelAssistConfig.confidence,
+                        model_path: customModel.file_path
+                    })
+                });
+            } else {
+                console.error('Custom model not found! ID:', labelAssistConfig.modelInfo.id);
+                return;
+            }
         } else {
-            // Use trained model
+            // Use latest trained model (default behavior)
+            console.log('Using latest trained model (default)');
             result = await apiCall(`/api/projects/${PROJECT_ID}/predict`, {
                 method: 'POST',
                 body: JSON.stringify({
@@ -990,6 +1107,13 @@ async function runAutoLabelAssist() {
                 })
             });
         }
+        
+        if (!result || !result.predictions) {
+            console.error('No result from prediction API');
+            return;
+        }
+        
+        console.log(`✅ Got ${result.predictions.length} predictions`);
         
         // Add predictions to annotations
         result.predictions.forEach(pred => {

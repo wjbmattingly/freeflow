@@ -2,6 +2,8 @@
 
 let project = null;
 let allImages = [];
+let filteredImages = [];
+let currentFilter = 'all'; // 'all', 'annotated', 'unannotated'
 let classes = [];
 let datasetVersions = [];
 let currentPage = 1;
@@ -42,11 +44,14 @@ async function loadImages() {
         // Update counts
         const totalCount = allImages.length;
         const annotatedCount = allImages.filter(img => img.status === 'completed').length;
+        const unannotatedCount = totalCount - annotatedCount;
         
-        document.getElementById('totalImagesCount').textContent = totalCount;
-        document.getElementById('annotatedImagesCount').textContent = annotatedCount;
+        document.getElementById('allImagesCount').textContent = totalCount;
+        document.getElementById('annotatedCount').textContent = annotatedCount;
+        document.getElementById('unannotatedCount').textContent = unannotatedCount;
         
-        // Display images grid
+        // Apply filter and display images grid
+        applyFilter();
         displayImagesGrid();
         
         // Update batches section
@@ -77,22 +82,59 @@ async function loadImages() {
     }
 }
 
+function applyFilter() {
+    if (currentFilter === 'all') {
+        filteredImages = [...allImages];
+    } else if (currentFilter === 'annotated') {
+        filteredImages = allImages.filter(img => img.status === 'completed');
+    } else if (currentFilter === 'unannotated') {
+        filteredImages = allImages.filter(img => img.status !== 'completed');
+    }
+    currentPage = 1; // Reset to first page when filter changes
+}
+
+function filterImages(filter) {
+    currentFilter = filter;
+    
+    // Update sub-tab styling
+    document.querySelectorAll('.sub-tab').forEach(tab => {
+        const isActive = tab.dataset.filter === filter;
+        tab.style.borderBottom = isActive ? '2px solid var(--primary-color)' : '2px solid transparent';
+        tab.style.fontWeight = isActive ? '500' : '400';
+        tab.style.color = isActive ? 'var(--text)' : 'var(--text-secondary)';
+        if (isActive) {
+            tab.classList.add('active');
+        } else {
+            tab.classList.remove('active');
+        }
+    });
+    
+    applyFilter();
+    displayImagesGrid();
+}
+
 function displayImagesGrid() {
     const grid = document.getElementById('imagesGrid');
     
-    if (allImages.length === 0) {
-        grid.innerHTML = '<p class="empty-state" style="grid-column: 1/-1; text-align: center; padding: 3rem;">No images uploaded yet</p>';
+    if (filteredImages.length === 0) {
+        const emptyMessage = currentFilter === 'all' ? 'No images uploaded yet' :
+                            currentFilter === 'annotated' ? 'No annotated images yet' :
+                            'No unannotated images';
+        grid.innerHTML = `<p class="empty-state" style="grid-column: 1/-1; text-align: center; padding: 3rem;">${emptyMessage}</p>`;
         document.getElementById('paginationControls').style.display = 'none';
+        document.getElementById('totalImagesCount').textContent = '0';
+        document.getElementById('showingCount').textContent = '0';
         return;
     }
     
     // Calculate pagination
-    const totalPages = Math.ceil(allImages.length / imagesPerPage);
+    const totalPages = Math.ceil(filteredImages.length / imagesPerPage);
     const startIdx = (currentPage - 1) * imagesPerPage;
-    const endIdx = Math.min(startIdx + imagesPerPage, allImages.length);
-    const imagesToShow = allImages.slice(startIdx, endIdx);
+    const endIdx = Math.min(startIdx + imagesPerPage, filteredImages.length);
+    const imagesToShow = filteredImages.slice(startIdx, endIdx);
     
     // Update showing count
+    document.getElementById('totalImagesCount').textContent = filteredImages.length;
     document.getElementById('showingCount').textContent = imagesToShow.length;
     
     // Render images
@@ -141,7 +183,7 @@ function previousPage() {
 }
 
 function nextPage() {
-    const totalPages = Math.ceil(allImages.length / imagesPerPage);
+    const totalPages = Math.ceil(filteredImages.length / imagesPerPage);
     if (currentPage < totalPages) {
         currentPage++;
         displayImagesGrid();
@@ -151,7 +193,12 @@ function nextPage() {
 }
 
 function openAnnotation(imageId) {
-    // Find the image index in allImages
+    // Pass the current filter to the annotation page
+    location.href = `/annotate/${PROJECT_ID}?image=${imageId}&filter=${currentFilter}`;
+}
+
+function openAnnotationOld(imageId) {
+    // Find the image index in allImages (old function, keeping for reference)
     const imageIndex = allImages.findIndex(img => img.id === imageId);
     if (imageIndex !== -1) {
         // Navigate to annotation page, could add image index as query param

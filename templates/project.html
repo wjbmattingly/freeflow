@@ -25,12 +25,23 @@
             <button class="btn btn-primary" onclick="showUploadModal()">Upload More Images</button>
         </div>
 
+        <!-- Sub-tabs for image filtering -->
+        <div class="sub-tabs" style="margin: 1.5rem 0; border-bottom: 1px solid var(--border);">
+            <button class="sub-tab active" data-filter="all" onclick="filterImages('all')" style="padding: 0.75rem 1rem; border: none; background: none; cursor: pointer; border-bottom: 2px solid var(--primary-color); font-weight: 500;">
+                All Images (<span id="allImagesCount">0</span>)
+            </button>
+            <button class="sub-tab" data-filter="annotated" onclick="filterImages('annotated')" style="padding: 0.75rem 1rem; border: none; background: none; cursor: pointer; border-bottom: 2px solid transparent; color: var(--text-secondary);">
+                Annotated (<span id="annotatedCount">0</span>)
+            </button>
+            <button class="sub-tab" data-filter="unannotated" onclick="filterImages('unannotated')" style="padding: 0.75rem 1rem; border: none; background: none; cursor: pointer; border-bottom: 2px solid transparent; color: var(--text-secondary);">
+                Unannotated (<span id="unannotatedCount">0</span>)
+            </button>
+        </div>
+
         <div class="images-header">
             <div class="images-info">
-                <h3>All Images</h3>
                 <p class="section-subtitle">
                     Showing <span id="showingCount">0</span> of <span id="totalImagesCount">0</span> images
-                    (<span id="annotatedImagesCount">0</span> annotated)
                 </p>
             </div>
             <div class="images-controls">
