@@ -679,9 +679,11 @@ async function loadTrainedModels() {
                     'x': 'X-Large'
                 }[model.model_size || 'n'];
                 
+                const hasTestMetrics = model.test_map50 !== null && model.test_map50 !== undefined;
+                
                 return `
                     <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 0.75rem; padding: 1.5rem; margin-bottom: 1rem;">
-                        <div style="display: flex; justify-content: space-between; align-items: start;">
+                        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 1rem;">
                             <div style="flex: 1;">
                                 <h4 style="font-size: 1.125rem; margin-bottom: 0.5rem;">${model.name || `Model #${model.id}`}</h4>
                                 <div style="display: flex; gap: 1rem; margin-bottom: 0.75rem; flex-wrap: wrap;">
@@ -698,8 +700,33 @@ async function loadTrainedModels() {
                                 <button class="btn btn-secondary" onclick="viewTrainingDetails(${model.id})" title="View training details">
                                     📊 Details
                                 </button>
+                                <button class="btn btn-primary" onclick="downloadModel(${model.id})" title="Download weights">
+                                    ⬇️ Download
+                                </button>
+                                <button class="btn btn-secondary" onclick="deleteTrainedModel(${model.id})" style="color: var(--error);" title="Delete model">
+                                    🗑️
+                                </button>
                             </div>
                         </div>
+                        ${hasTestMetrics ? `
+                            <div style="background: rgba(124, 58, 237, 0.05); border: 1px solid rgba(124, 58, 237, 0.2); border-radius: 0.5rem; padding: 1rem;">
+                                <h5 style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 0.75rem;">Test Set Metrics</h5>
+                                <div style="display: flex; gap: 2rem;">
+                                    <div style="text-align: center;">
+                                        <div style="font-size: 1.5rem; font-weight: 600; color: var(--primary-color);">${(model.test_map50 * 100).toFixed(1)}%</div>
+                                        <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem;">mAP@50</div>
+                                    </div>
+                                    <div style="text-align: center;">
+                                        <div style="font-size: 1.5rem; font-weight: 600; color: var(--primary-color);">${(model.test_precision * 100).toFixed(1)}%</div>
+                                        <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem;">Precision</div>
+                                    </div>
+                                    <div style="text-align: center;">
+                                        <div style="font-size: 1.5rem; font-weight: 600; color: var(--primary-color);">${(model.test_recall * 100).toFixed(1)}%</div>
+                                        <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem;">Recall</div>
+                                    </div>
+                                </div>
+                            </div>
+                        ` : '<p style="font-size: 0.875rem; color: var(--text-secondary); font-style: italic;">Evaluation metrics not available</p>'}
                     </div>
                 `;
             }).join('');
@@ -736,7 +763,29 @@ async function loadTrainedModels() {
 }
 
 function viewTrainingDetails(jobId) {
-    location.href = `/training/${PROJECT_ID}?job=${jobId}`;
+    location.href = `/project/${PROJECT_ID}/model/${jobId}`;
+}
+
+function downloadModel(jobId) {
+    window.location.href = `/api/training/${jobId}/download`;
+}
+
+async function deleteTrainedModel(jobId) {
+    if (!confirm('Delete this trained model? This will permanently delete the model weights and cannot be undone.')) {
+        return;
+    }
+    
+    try {
+        await apiCall(`/api/training/${jobId}`, {
+            method: 'DELETE'
+        });
+        
+        showToast('Model deleted successfully', 'success');
+        await loadTrainedModels();
+        
+    } catch (error) {
+        showToast(error.message || 'Failed to delete model', 'error');
+    }
 }
 
 function showUploadModelModal() {

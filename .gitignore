@@ -1,5 +1,6 @@
 yolo11*    
 output_models/
+runs/
 # Python
 __pycache__/
 *.py[cod]

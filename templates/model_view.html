@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+
+{% block title %}{{ model.name }} - FreeFlow{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="project-header">
+        <div class="breadcrumb">
+            <a href="/">Projects</a> / 
+            <a href="/project/{{ project.id }}">{{ project.name }}</a> / 
+            <span>{{ model.name }}</span>
+        </div>
+        <div class="project-actions">
+            <button class="btn btn-secondary" onclick="window.location.href='/api/training/{{ model.id }}/download'">⬇️ Download Weights</button>
+            <button class="btn btn-primary" onclick="window.location.href='/annotate/{{ project.id }}'">Deploy Model</button>
+        </div>
+    </div>
+
+    <!-- Model Info Card -->
+    <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 0.75rem; padding: 2rem; margin-bottom: 2rem;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 2rem; margin-bottom: 1.5rem;">
+            <div>
+                <div style="font-size: 0.75rem; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 0.5rem;">Model URL</div>
+                <div style="font-weight: 500;">{{ project.name }}-{{ model.id }}</div>
+            </div>
+            <div>
+                <div style="font-size: 0.75rem; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 0.5rem;">Checkpoint</div>
+                <div style="font-weight: 500;">Epoch {{ model.epochs }}</div>
+            </div>
+            <div>
+                <div style="font-size: 0.75rem; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 0.5rem;">Updated On</div>
+                <div style="font-weight: 500;"><span style="color: var(--success);">✓</span> {{ model.completed_at }}</div>
+            </div>
+            <div>
+                <div style="font-size: 0.75rem; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 0.5rem;">Model Type</div>
+                <div style="font-weight: 500;">YOLOv11 Object Detection ({{ model_size_label }})</div>
+            </div>
+        </div>
+
+        <!-- Metrics Display -->
+        <div style="background: rgba(124, 58, 237, 0.05); border: 1px solid rgba(124, 58, 237, 0.2); border-radius: 0.75rem; padding: 1.5rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <h3 style="font-size: 1rem; margin: 0;">Metrics</h3>
+                <div style="font-size: 0.75rem; color: var(--text-secondary);">
+                    <span style="margin-right: 1rem;">Valid Set</span>
+                    <span>External</span>
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 2rem;">
+                <div style="text-align: center;">
+                    <div style="font-size: 2rem; font-weight: 600; color: var(--primary-color);" id="test_map50">--</div>
+                    <div style="font-size: 0.875rem; color: var(--text-secondary); margin-top: 0.5rem;">mAP@50</div>
+                </div>
+                <div style="text-align: center;">
+                    <div style="font-size: 2rem; font-weight: 600; color: var(--primary-color);" id="test_precision">--</div>
+                    <div style="font-size: 0.875rem; color: var(--text-secondary); margin-top: 0.5rem;">Precision</div>
+                </div>
+                <div style="text-align: center;">
+                    <div style="font-size: 2rem; font-weight: 600; color: var(--primary-color);" id="test_recall">--</div>
+                    <div style="font-size: 0.875rem; color: var(--text-secondary); margin-top: 0.5rem;">Recall</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Preview Model Section -->
+    <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 0.75rem; padding: 2rem; margin-bottom: 2rem;">
+        <h3>Preview Model</h3>
+        <div style="display: grid; grid-template-columns: 250px 1fr 250px; gap: 2rem; margin-top: 1.5rem;">
+            <!-- Left Sidebar -->
+            <div>
+                <h4 style="font-size: 0.875rem; margin-bottom: 1rem;">Samples from Test Set</h4>
+                <div id="testSamples" style="display: grid; gap: 0.5rem;">
+                    <!-- Test samples will be loaded here -->
+                </div>
+            </div>
+
+            <!-- Center - Image Preview -->
+            <div style="background: var(--background); border: 1px solid var(--border); border-radius: 0.5rem; min-height: 500px; display: flex; align-items: center; justify-content: center; position: relative;">
+                <canvas id="previewCanvas" style="max-width: 100%; max-height: 100%;"></canvas>
+                <div id="previewPlaceholder" style="color: var(--text-secondary);">
+                    Select an image or upload one to test the model
+                </div>
+            </div>
+
+            <!-- Right Sidebar -->
+            <div>
+                <h4 style="font-size: 0.875rem; margin-bottom: 1rem;">Upload Image or Video File</h4>
+                <div style="border: 2px dashed var(--border); border-radius: 0.5rem; padding: 2rem; text-align: center; cursor: pointer;" onclick="document.getElementById('testImageInput').click()">
+                    <input type="file" id="testImageInput" accept="image/*" style="display: none;" onchange="testModelOnImage(this.files[0])">
+                    <div style="font-size: 0.875rem; color: var(--text-secondary);">Drop file here or</div>
+                    <button class="btn btn-secondary" style="margin-top: 0.5rem;">Select File</button>
+                </div>
+
+                <div style="margin-top: 1.5rem;">
+                    <label style="display: block; font-size: 0.875rem; margin-bottom: 0.5rem;">Confidence Threshold</label>
+                    <input type="range" id="confidenceThreshold" min="0" max="100" value="50" style="width: 100%;" oninput="document.getElementById('confValue').textContent = this.value + '%'">
+                    <div id="confValue" style="text-align: center; font-size: 0.75rem; color: var(--text-secondary);">50%</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Model Evaluation Section -->
+    <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 0.75rem; padding: 2rem; margin-bottom: 2rem;">
+        <h3>Model Evaluation</h3>
+        
+        <!-- Average Precision by Class -->
+        <div style="margin-top: 1.5rem;">
+            <h4 style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 1rem;">Average Precision by Class (mAP50)</h4>
+            <div id="classPrecisionBars">
+                <!-- Per-class precision bars will be loaded here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Training Graphs -->
+    <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 0.75rem; padding: 2rem; margin-bottom: 2rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+            <h3>Training Graphs</h3>
+        </div>
+
+        <!-- Model Performance Chart -->
+        <div style="margin-bottom: 2rem;">
+            <h4 style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 1rem;">Model Performance</h4>
+            <canvas id="performanceChart" style="max-height: 300px;"></canvas>
+        </div>
+
+        <!-- Loss Charts -->
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 2rem;">
+            <div>
+                <h4 style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 1rem;">Box Loss</h4>
+                <canvas id="boxLossChart" style="max-height: 200px;"></canvas>
+            </div>
+            <div>
+                <h4 style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 1rem;">Class Loss</h4>
+                <canvas id="classLossChart" style="max-height: 200px;"></canvas>
+            </div>
+            <div>
+                <h4 style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 1rem;">DFL Loss</h4>
+                <canvas id="dflLossChart" style="max-height: 200px;"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confusion Matrix -->
+    <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 0.75rem; padding: 2rem;">
+        <h3 style="margin-bottom: 1.5rem;">Confusion Matrix</h3>
+        <div style="display: flex; gap: 2rem; justify-content: center;">
+            <div id="confusionMatrixContainer" style="text-align: center;">
+                <img id="confusionMatrix" style="max-width: 100%; border: 1px solid var(--border); border-radius: 0.5rem;">
+                <p style="font-size: 0.875rem; color: var(--text-secondary); margin-top: 0.5rem;">Confusion Matrix</p>
+            </div>
+            <div id="confusionMatrixNormalizedContainer" style="text-align: center;">
+                <img id="confusionMatrixNormalized" style="max-width: 100%; border: 1px solid var(--border); border-radius: 0.5rem;">
+                <p style="font-size: 0.875rem; color: var(--text-secondary); margin-top: 0.5rem;">Normalized Confusion Matrix</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+    const PROJECT_ID = {{ project.id }};
+    const MODEL_ID = {{ model.id }};
+    const MODEL_PATH = '{{ model.model_path }}';
+</script>
+<script src="/static/js/model_view.js"></script>
+{% endblock %}
+

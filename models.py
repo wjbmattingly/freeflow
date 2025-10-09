@@ -94,6 +94,11 @@ class TrainingJob(db.Model):
     # Training metrics stored as JSON
     metrics = db.Column(db.Text)  # JSON string
     
+    # Test set evaluation metrics
+    test_map50 = db.Column(db.Float)
+    test_precision = db.Column(db.Float)
+    test_recall = db.Column(db.Float)
+    
     started_at = db.Column(db.DateTime)
     completed_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

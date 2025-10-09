@@ -157,15 +157,61 @@ def train_yolo_model(job_id, socketio):
             
             job.model_path = model_path
             job.metrics = json.dumps(metrics_data)
+            
+            # Evaluate on test set
+            print(f"\n📊 Evaluating model on test set...")
+            socketio.emit('training_update', {
+                'job_id': job.id,
+                'status': 'evaluating',
+                'message': 'Evaluating model on test set...'
+            })
+            
+            try:
+                # Load the trained model
+                trained_model = YOLO(model_path)
+                
+                # Run validation on test set
+                test_results = trained_model.val(
+                    data=os.path.join(dataset_path, 'data.yaml'),
+                    split='test',
+                    verbose=False
+                )
+                
+                # Extract metrics
+                if test_results:
+                    job.test_map50 = float(test_results.box.map50) if hasattr(test_results.box, 'map50') else 0.0
+                    job.test_precision = float(test_results.box.mp) if hasattr(test_results.box, 'mp') else 0.0
+                    job.test_recall = float(test_results.box.mr) if hasattr(test_results.box, 'mr') else 0.0
+                    
+                    print(f"✅ Test Metrics:")
+                    print(f"   mAP@50: {job.test_map50:.1%}")
+                    print(f"   Precision: {job.test_precision:.1%}")
+                    print(f"   Recall: {job.test_recall:.1%}")
+                else:
+                    print("⚠️ No test results available")
+            except Exception as eval_error:
+                print(f"⚠️ Test evaluation failed: {eval_error}")
+                # Don't fail the whole training if evaluation fails
+                job.test_map50 = None
+                job.test_precision = None
+                job.test_recall = None
+            
             job.status = 'completed'
             job.completed_at = datetime.utcnow()
             db.session.commit()
+            print(f"✅ Job #{job.id} completed. Model saved to: {model_path}")
             
             socketio.emit('training_complete', {
                 'job_id': job.id,
                 'status': 'completed',
                 'message': 'Training completed successfully!',
-                'metrics': metrics_data
+                'model_path': model_path,
+                'metrics': metrics_data,
+                'test_metrics': {
+                    'map50': job.test_map50,
+                    'precision': job.test_precision,
+                    'recall': job.test_recall
+                }
             })
             
         except Exception as e:

@@ -106,20 +106,23 @@ def get_project(project_id):
             'name': cls.name,
             'color': cls.color
         } for cls in project.classes],
-        'training_jobs': [{
-            'id': job.id,
-            'name': job.name,
-            'model_size': job.model_size,
-            'status': job.status,
-            'epochs': job.epochs,
-            'batch_size': job.batch_size,
-            'image_size': job.image_size,
-            'dataset_version_id': job.dataset_version_id,
-            'model_path': job.model_path,
-            'created_at': job.created_at.isoformat(),
-            'started_at': job.started_at.isoformat() if job.started_at else None,
-            'completed_at': job.completed_at.isoformat() if job.completed_at else None
-        } for job in project.training_jobs],
+                'training_jobs': [{
+                    'id': job.id,
+                    'name': job.name,
+                    'model_size': job.model_size,
+                    'status': job.status,
+                    'epochs': job.epochs,
+                    'batch_size': job.batch_size,
+                    'image_size': job.image_size,
+                    'dataset_version_id': job.dataset_version_id,
+                    'model_path': job.model_path,
+                    'test_map50': job.test_map50,
+                    'test_precision': job.test_precision,
+                    'test_recall': job.test_recall,
+                    'created_at': job.created_at.isoformat(),
+                    'started_at': job.started_at.isoformat() if job.started_at else None,
+                    'completed_at': job.completed_at.isoformat() if job.completed_at else None
+                } for job in project.training_jobs],
         'custom_models': [{
             'id': model.id,
             'name': model.name,
@@ -534,23 +537,276 @@ def get_training_job(job_id):
         'epochs': job.epochs,
         'batch_size': job.batch_size,
         'image_size': job.image_size,
+        'model_path': job.model_path,
         'metrics': json.loads(job.metrics) if job.metrics else None,
+        'test_map50': job.test_map50,
+        'test_precision': job.test_precision,
+        'test_recall': job.test_recall,
         'started_at': job.started_at.isoformat() if job.started_at else None,
         'completed_at': job.completed_at.isoformat() if job.completed_at else None
     })
 
 def delete_training_job(job_id):
     """Delete a training job"""
+    import shutil
+    
     job = TrainingJob.query.get_or_404(job_id)
     
     # Don't allow deleting jobs that are currently training
     if job.status == 'training':
         return jsonify({'error': 'Cannot delete a job that is currently training'}), 400
     
+    # Delete the model files
+    if job.model_path:
+        try:
+            # Delete the entire training run directory
+            job_dir = os.path.join('training_runs', str(job.project_id), f'job_{job.id}')
+            if os.path.exists(job_dir):
+                shutil.rmtree(job_dir)
+                print(f"Deleted training directory: {job_dir}")
+        except Exception as e:
+            print(f"Failed to delete model files: {e}")
+    
     db.session.delete(job)
     db.session.commit()
     
     return jsonify({'message': 'Training job deleted successfully'})
+
+def download_model(job_id):
+    """Download trained model weights"""
+    job = TrainingJob.query.get_or_404(job_id)
+    
+    if not job.model_path or not os.path.exists(job.model_path):
+        return jsonify({'error': 'Model file not found'}), 404
+    
+    from flask import send_file
+    
+    # Create a filename for download
+    filename = f"{job.name or f'model_{job.id}'}_{job.model_size}.pt"
+    
+    return send_file(
+        job.model_path,
+        as_attachment=True,
+        download_name=filename
+    )
+
+def view_model(project_id, job_id):
+    """View model details page"""
+    from flask import render_template
+    
+    project = Project.query.get_or_404(project_id)
+    job = TrainingJob.query.get_or_404(job_id)
+    
+    model_size_labels = {
+        'n': 'Nano',
+        's': 'Small',
+        'm': 'Medium',
+        'l': 'Large',
+        'x': 'X-Large'
+    }
+    
+    return render_template('model_view.html',
+                         project=project,
+                         model=job,
+                         model_size_label=model_size_labels.get(job.model_size, 'Medium'))
+
+def get_confusion_matrix(job_id):
+    """Serve confusion matrix image"""
+    from flask import send_file
+    
+    job = TrainingJob.query.get_or_404(job_id)
+    
+    if not job.model_path:
+        return jsonify({'error': 'Model not found'}), 404
+    
+    # Get the training run directory
+    job_dir = os.path.dirname(os.path.dirname(job.model_path))  # Go up from weights/best.pt
+    
+    # Look for confusion matrix
+    matrix_path = os.path.join(job_dir, 'confusion_matrix.png')
+    
+    if not os.path.exists(matrix_path):
+        return jsonify({'error': 'Confusion matrix not found'}), 404
+    
+    return send_file(matrix_path, mimetype='image/png')
+
+def get_confusion_matrix_normalized(job_id):
+    """Serve normalized confusion matrix image"""
+    from flask import send_file
+    
+    job = TrainingJob.query.get_or_404(job_id)
+    
+    if not job.model_path:
+        return jsonify({'error': 'Model not found'}), 404
+    
+    # Get the training run directory
+    job_dir = os.path.dirname(os.path.dirname(job.model_path))  # Go up from weights/best.pt
+    
+    # Look for normalized confusion matrix
+    matrix_path = os.path.join(job_dir, 'confusion_matrix_normalized.png')
+    
+    if not os.path.exists(matrix_path):
+        return jsonify({'error': 'Normalized confusion matrix not found'}), 404
+    
+    return send_file(matrix_path, mimetype='image/png')
+
+def evaluate_model_on_test(job_id):
+    """Retroactively evaluate a trained model on the test set"""
+    job = TrainingJob.query.get_or_404(job_id)
+    
+    # Check if model exists
+    if not job.model_path or not os.path.exists(job.model_path):
+        return jsonify({'error': 'Model file not found'}), 404
+    
+    # Check if already has test metrics
+    if job.test_map50 is not None:
+        return jsonify({'message': 'Model already has test metrics', 'test_metrics': {
+            'map50': job.test_map50,
+            'precision': job.test_precision,
+            'recall': job.test_recall
+        }})
+    
+    try:
+        from ultralytics import YOLO
+        
+        # Get the dataset path
+        job_dir = os.path.dirname(os.path.dirname(job.model_path))
+        dataset_path = os.path.join(job_dir, '..', '..', 'datasets', f'project_{job.project_id}')
+        
+        # Check if dataset still exists
+        data_yaml = os.path.join(dataset_path, 'data.yaml')
+        if not os.path.exists(data_yaml):
+            return jsonify({'error': 'Dataset no longer exists'}), 404
+        
+        # Load model
+        model = YOLO(job.model_path)
+        
+        # Run validation on test set
+        print(f"🔍 Evaluating model {job.id} on test set...")
+        test_results = model.val(
+            data=data_yaml,
+            split='test',
+            verbose=False
+        )
+        
+        # Extract and save metrics
+        if test_results:
+            job.test_map50 = float(test_results.box.map50) if hasattr(test_results.box, 'map50') else 0.0
+            job.test_precision = float(test_results.box.mp) if hasattr(test_results.box, 'mp') else 0.0
+            job.test_recall = float(test_results.box.mr) if hasattr(test_results.box, 'mr') else 0.0
+            
+            db.session.commit()
+            
+            print(f"✅ Test Metrics saved for job {job.id}:")
+            print(f"   mAP@50: {job.test_map50:.1%}")
+            print(f"   Precision: {job.test_precision:.1%}")
+            print(f"   Recall: {job.test_recall:.1%}")
+            
+            return jsonify({
+                'message': 'Model evaluated successfully',
+                'test_metrics': {
+                    'map50': job.test_map50,
+                    'precision': job.test_precision,
+                    'recall': job.test_recall
+                }
+            })
+        else:
+            return jsonify({'error': 'Evaluation failed - no results returned'}), 500
+            
+    except Exception as e:
+        print(f"❌ Evaluation failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Evaluation failed: {str(e)}'}), 500
+
+def predict_on_upload(job_id):
+    """Run model prediction on an uploaded image file (for testing)"""
+    job = TrainingJob.query.get_or_404(job_id)
+    
+    if not job.model_path or not os.path.exists(job.model_path):
+        return jsonify({'error': 'Model not found'}), 404
+    
+    # Get uploaded file
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+    
+    try:
+        from ultralytics import YOLO
+        from PIL import Image as PILImage
+        import io
+        
+        # Read image from upload
+        img_bytes = file.read()
+        img = PILImage.open(io.BytesIO(img_bytes))
+        
+        # Get image dimensions
+        img_width, img_height = img.size
+        
+        # Get confidence threshold
+        confidence = float(request.form.get('confidence', 0.5))
+        
+        # Load model and predict
+        model = YOLO(job.model_path)
+        
+        # Save temporary file for prediction
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as tmp:
+            img.save(tmp.name)
+            tmp_path = tmp.name
+        
+        try:
+            results = model.predict(tmp_path, conf=confidence, verbose=False)
+            
+            predictions = []
+            if len(results) > 0:
+                result = results[0]
+                boxes = result.boxes
+                
+                # Get project to map classes
+                project = Project.query.get(job.project_id)
+                
+                for box in boxes:
+                    # Convert to normalized coordinates
+                    x1, y1, x2, y2 = box.xyxy[0].tolist()
+                    x_center = ((x1 + x2) / 2) / img_width
+                    y_center = ((y1 + y2) / 2) / img_height
+                    width = (x2 - x1) / img_width
+                    height = (y2 - y1) / img_height
+                    
+                    cls_id = int(box.cls[0])
+                    conf = float(box.conf[0])
+                    
+                    # Map model class to project class
+                    if cls_id < len(project.classes):
+                        predictions.append({
+                            'class_id': project.classes[cls_id].id,
+                            'class_name': project.classes[cls_id].name,
+                            'x_center': x_center,
+                            'y_center': y_center,
+                            'width': width,
+                            'height': height,
+                            'confidence': conf
+                        })
+            
+            return jsonify({
+                'predictions': predictions,
+                'image_width': img_width,
+                'image_height': img_height
+            })
+            
+        finally:
+            # Clean up temp file
+            os.unlink(tmp_path)
+            
+    except Exception as e:
+        print(f"Prediction error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Prediction failed: {str(e)}'}), 500
 
 def predict_annotations(project_id):
     """Use trained model to predict annotations (Label Assist)"""
@@ -604,6 +860,7 @@ def predict_annotations(project_id):
                 if cls_id < len(project.classes):
                     predictions.append({
                         'class_id': project.classes[cls_id].id,
+                        'class_name': project.classes[cls_id].name,
                         'x_center': x_center,
                         'y_center': y_center,
                         'width': width,
