@@ -22,8 +22,17 @@
         <button class="tab" data-tab="settings">Settings</button>
     </div>
     <div class="tab-content active" id="dataTab">
-        <div class="data-actions">
-            <button class="btn btn-primary" onclick="showUploadModal()">Upload More Images</button>
+        <div class="data-actions" style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; gap: 0.5rem;">
+                <button class="btn btn-primary" onclick="showUploadModal()">Upload More Images</button>
+                <button class="btn btn-secondary" id="deleteSelectedBtn" onclick="deleteSelectedImages()" style="display: none; background: #dc2626; color: white; border-color: #dc2626;">
+                    🗑️ Delete Selected (<span id="selectedCount">0</span>)
+                </button>
+            </div>
+            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                <input type="checkbox" id="selectAllImages" onchange="toggleSelectAll()">
+                <span style="font-size: 0.875rem;">Select All</span>
+            </label>
         </div>
 
         <!-- Sub-tabs for image filtering -->
@@ -171,6 +180,17 @@
                     </div>
                 </div>
             </div>
+            
+            <!-- Danger Zone -->
+            <div style="background: var(--surface); border: 2px solid #dc2626; border-radius: 0.75rem; padding: 2rem; margin-top: 2rem;">
+                <h4 style="color: #dc2626; margin-bottom: 0.5rem;">⚠️ Danger Zone</h4>
+                <p style="color: var(--text-secondary); margin-bottom: 1.5rem; font-size: 0.875rem;">
+                    Once you delete a project, there is no going back. This will permanently delete all images, annotations, and trained models.
+                </p>
+                <button class="btn btn-secondary" onclick="showDeleteProjectModal()" style="background: #dc2626; color: white; border-color: #dc2626;">
+                    🗑️ Delete Project
+                </button>
+            </div>
         </div>
     </div>
 </div>
@@ -270,6 +290,52 @@
         <div class="modal-footer">
             <button class="btn btn-secondary" onclick="closeUploadModelModal()">Cancel</button>
             <button class="btn btn-primary" onclick="uploadCustomModel()">Upload Model</button>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Project Modal -->
+<div id="deleteProjectModal" class="modal">
+    <div class="modal-content" style="max-width: 500px;">
+        <div class="modal-header">
+            <h2 style="color: #dc2626;">⚠️ Delete Project</h2>
+            <button class="close-btn" onclick="closeDeleteProjectModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p style="margin-bottom: 1rem;">Are you absolutely sure you want to delete this project?</p>
+            <p style="margin-bottom: 1rem; font-weight: 600;">This will permanently delete:</p>
+            <ul style="margin-left: 1.5rem; margin-bottom: 1rem; color: var(--text-secondary);">
+                <li>All images and annotations</li>
+                <li>All classes and dataset versions</li>
+                <li>All trained models and custom models</li>
+                <li>Project settings and metadata</li>
+            </ul>
+            <div style="background: rgba(220, 38, 38, 0.1); border: 1px solid #dc2626; border-radius: 0.5rem; padding: 1rem; margin-bottom: 1rem;">
+                <p style="font-weight: 600; margin-bottom: 0.5rem;">Type the project name to confirm:</p>
+                <input type="text" id="deleteProjectConfirm" placeholder="Enter project name" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border); border-radius: 0.5rem;">
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeDeleteProjectModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="confirmDeleteProject()" style="background: #dc2626; border-color: #dc2626;">Delete Project</button>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Images Modal -->
+<div id="deleteImagesModal" class="modal">
+    <div class="modal-content" style="max-width: 500px;">
+        <div class="modal-header">
+            <h2 style="color: #dc2626;">⚠️ Delete Images</h2>
+            <button class="close-btn" onclick="closeDeleteImagesModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p style="margin-bottom: 1rem;">Are you sure you want to delete <strong id="deleteImagesCount">0</strong> image(s)?</p>
+            <p style="color: var(--text-secondary); font-size: 0.875rem;">This will permanently delete the images and all their annotations. This action cannot be undone.</p>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeDeleteImagesModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="confirmDeleteImages()" style="background: #dc2626; border-color: #dc2626;">Delete Images</button>
         </div>
     </div>
 </div>

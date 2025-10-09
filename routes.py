@@ -356,6 +356,39 @@ def extract_images_from_pdf(pdf_file, output_folder, batch_id):
     
     return pdf_images
 
+def delete_project_images(project_id):
+    """Delete multiple images from a project"""
+    project = Project.query.get_or_404(project_id)
+    data = request.json
+    image_ids = data.get('image_ids', [])
+    
+    if not image_ids:
+        return jsonify({'error': 'No images specified'}), 400
+    
+    deleted_count = 0
+    for image_id in image_ids:
+        image = Image.query.filter_by(id=image_id, project_id=project_id).first()
+        if image:
+            # Delete the image file
+            try:
+                if os.path.exists(image.filepath):
+                    os.remove(image.filepath)
+            except Exception as e:
+                print(f"Failed to delete image file: {e}")
+            
+            # Delete from database (cascades to annotations)
+            db.session.delete(image)
+            deleted_count += 1
+    
+    # Update project timestamp
+    project.updated_at = datetime.utcnow()
+    db.session.commit()
+    
+    return jsonify({
+        'message': f'Successfully deleted {deleted_count} image(s)',
+        'deleted_count': deleted_count
+    })
+
 def get_project_images(project_id):
     """Get all images in a project"""
     project = Project.query.get_or_404(project_id)
@@ -954,6 +987,10 @@ def predict_annotations(project_id):
             result = results[0]
             boxes = result.boxes
             
+            print(f"🔍 Predict - Model detected {len(boxes)} boxes for image {image.id}")
+            print(f"🔍 Predict - Model path: {model_path}")
+            print(f"🔍 Predict - Confidence threshold: {data.get('confidence', 0.5)}")
+            
             for box in boxes:
                 # Convert to normalized coordinates
                 x1, y1, x2, y2 = box.xyxy[0].tolist()
@@ -967,6 +1004,11 @@ def predict_annotations(project_id):
                 
                 # Get class mapping if provided
                 class_mapping = data.get('class_mapping', {})
+                
+                # Get ordered list of project classes (by ID for consistency)
+                ordered_classes = sorted(project.classes, key=lambda c: c.id)
+                
+                print(f"🔍 Box: cls_id={cls_id}, conf={confidence}, class_mapping={class_mapping}, num_project_classes={len(ordered_classes)}")
                 
                 # Map model class to project class
                 if class_mapping and str(cls_id) in class_mapping:
@@ -983,18 +1025,23 @@ def predict_annotations(project_id):
                             'height': height,
                             'confidence': confidence
                         })
-                elif cls_id < len(project.classes):
+                elif cls_id < len(ordered_classes):
                     # Assume model classes are in same order as project classes
+                    mapped_class = ordered_classes[cls_id]
                     predictions.append({
-                        'class_id': project.classes[cls_id].id,
-                        'class_name': project.classes[cls_id].name,
+                        'class_id': mapped_class.id,
+                        'class_name': mapped_class.name,
                         'x_center': x_center,
                         'y_center': y_center,
                         'width': width,
                         'height': height,
                         'confidence': confidence
                     })
+                    print(f"✅ Added prediction: {mapped_class.name}")
+                else:
+                    print(f"⚠️ Skipping box: cls_id {cls_id} >= num_classes {len(ordered_classes)}")
         
+        print(f"🔍 Returning {len(predictions)} predictions")
         return jsonify({'predictions': predictions})
         
     except Exception as e:
@@ -1016,12 +1063,14 @@ def get_model_classes(job_id):
         
         # Get class names from the model
         if hasattr(model, 'names') and model.names:
-            classes = [{'id': i, 'name': name} for i, name in model.names.items()]
+            # Sort by key to ensure correct order (YOLO uses 0-indexed class IDs)
+            classes = [{'id': i, 'name': name} for i, name in sorted(model.names.items())]
             return jsonify({'classes': classes})
         else:
-            # Fallback: get classes from the project
+            # Fallback: get classes from the project (sorted by ID for consistency)
             project = Project.query.get(job.project_id)
-            classes = [{'id': i, 'name': cls.name} for i, cls in enumerate(project.classes)]
+            ordered_classes = sorted(project.classes, key=lambda c: c.id)
+            classes = [{'id': i, 'name': cls.name} for i, cls in enumerate(ordered_classes)]
             return jsonify({'classes': classes})
             
     except Exception as e:
@@ -1043,7 +1092,8 @@ def get_custom_model_classes(project_id, model_id):
         
         # Get class names from the model
         if hasattr(model, 'names') and model.names:
-            classes = [{'id': i, 'name': name} for i, name in model.names.items()]
+            # Sort by key to ensure correct order (YOLO uses 0-indexed class IDs)
+            classes = [{'id': i, 'name': name} for i, name in sorted(model.names.items())]
             return jsonify({'classes': classes})
         else:
             return jsonify({'error': 'Could not extract classes from model'}), 500

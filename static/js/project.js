@@ -8,6 +8,7 @@ let classes = [];
 let datasetVersions = [];
 let currentPage = 1;
 let imagesPerPage = 20;
+let selectedImages = new Set(); // Track selected image IDs
 
 document.addEventListener('DOMContentLoaded', () => {
     loadProject();
@@ -53,6 +54,7 @@ async function loadImages() {
         // Apply filter and display images grid
         applyFilter();
         displayImagesGrid();
+        updateSelectionUI();
         
         // Update batches section
         const unassignedBatches = document.getElementById('unassignedBatches');
@@ -141,7 +143,23 @@ function displayImagesGrid() {
     grid.innerHTML = imagesToShow.map(img => `
         <div class="image-card ${img.status === 'completed' ? 'annotated' : ''}" 
              onclick="openAnnotation(${img.id})"
-             title="${img.filename}">
+             title="${img.filename}"
+             style="position: relative;">
+            <!-- Checkbox for selection -->
+            <input type="checkbox" 
+                   class="image-checkbox" 
+                   data-image-id="${img.id}"
+                   ${selectedImages.has(img.id) ? 'checked' : ''}
+                   onclick="event.stopPropagation(); toggleImageSelection(${img.id})"
+                   style="position: absolute; top: 0.5rem; left: 0.5rem; width: 1.25rem; height: 1.25rem; cursor: pointer; z-index: 10;">
+            
+            <!-- Delete button -->
+            <button class="btn-icon" 
+                    onclick="event.stopPropagation(); deleteSingleImage(${img.id})"
+                    style="position: absolute; top: 0.5rem; right: 0.5rem; background: rgba(220, 38, 38, 0.9); color: white; padding: 0.25rem 0.5rem; border-radius: 0.25rem; cursor: pointer; z-index: 10; border: none;">
+                🗑️
+            </button>
+            
             <img src="/api/images/${img.id}" 
                  alt="${img.filename}" 
                  class="image-thumbnail"
@@ -155,6 +173,9 @@ function displayImagesGrid() {
             </div>
         </div>
     `).join('');
+    
+    // Update select all checkbox state
+    updateSelectAllCheckbox();
     
     // Update pagination controls
     if (totalPages > 1) {
@@ -999,6 +1020,122 @@ async function uploadCustomThumbnail() {
         fileInput.value = '';
     } catch (error) {
         showToast('Failed to upload thumbnail', 'error');
+    }
+}
+
+// ==================== IMAGE SELECTION & DELETION ====================
+
+function toggleImageSelection(imageId) {
+    if (selectedImages.has(imageId)) {
+        selectedImages.delete(imageId);
+    } else {
+        selectedImages.add(imageId);
+    }
+    updateSelectionUI();
+}
+
+function toggleSelectAll() {
+    const selectAllCheckbox = document.getElementById('selectAllImages');
+    
+    if (selectAllCheckbox.checked) {
+        // Select all visible images
+        filteredImages.forEach(img => selectedImages.add(img.id));
+    } else {
+        // Deselect all
+        selectedImages.clear();
+    }
+    
+    displayImagesGrid();
+    updateSelectionUI();
+}
+
+function updateSelectAllCheckbox() {
+    const selectAllCheckbox = document.getElementById('selectAllImages');
+    const visibleImageIds = filteredImages.map(img => img.id);
+    const allVisibleSelected = visibleImageIds.length > 0 && 
+                                visibleImageIds.every(id => selectedImages.has(id));
+    
+    selectAllCheckbox.checked = allVisibleSelected;
+}
+
+function updateSelectionUI() {
+    const count = selectedImages.size;
+    document.getElementById('selectedCount').textContent = count;
+    document.getElementById('deleteSelectedBtn').style.display = count > 0 ? 'block' : 'none';
+}
+
+function deleteSingleImage(imageId) {
+    selectedImages.clear();
+    selectedImages.add(imageId);
+    deleteSelectedImages();
+}
+
+function deleteSelectedImages() {
+    if (selectedImages.size === 0) {
+        showToast('No images selected', 'error');
+        return;
+    }
+    
+    document.getElementById('deleteImagesCount').textContent = selectedImages.size;
+    document.getElementById('deleteImagesModal').classList.add('active');
+}
+
+function closeDeleteImagesModal() {
+    document.getElementById('deleteImagesModal').classList.remove('active');
+}
+
+async function confirmDeleteImages() {
+    const imageIds = Array.from(selectedImages);
+    
+    try {
+        await apiCall(`/api/projects/${PROJECT_ID}/images/delete`, {
+            method: 'POST',
+            body: JSON.stringify({ image_ids: imageIds })
+        });
+        
+        showToast(`Successfully deleted ${imageIds.length} image(s)`, 'success');
+        selectedImages.clear();
+        closeDeleteImagesModal();
+        await loadImages(); // Reload images
+        
+    } catch (error) {
+        showToast('Failed to delete images', 'error');
+    }
+}
+
+// ==================== PROJECT DELETION ====================
+
+function showDeleteProjectModal() {
+    document.getElementById('deleteProjectConfirm').value = '';
+    document.getElementById('deleteProjectModal').classList.add('active');
+}
+
+function closeDeleteProjectModal() {
+    document.getElementById('deleteProjectModal').classList.remove('active');
+}
+
+async function confirmDeleteProject() {
+    const confirmInput = document.getElementById('deleteProjectConfirm').value.trim();
+    
+    if (confirmInput !== project.name) {
+        showToast('Project name does not match. Please type the exact project name to confirm.', 'error');
+        return;
+    }
+    
+    try {
+        await apiCall(`/api/projects/${PROJECT_ID}`, {
+            method: 'DELETE'
+        });
+        
+        showToast('Project deleted successfully', 'success');
+        
+        // Redirect to homepage after short delay
+        setTimeout(() => {
+            window.location.href = '/';
+        }, 1000);
+        
+    } catch (error) {
+        showToast('Failed to delete project', 'error');
     }
 }
 
