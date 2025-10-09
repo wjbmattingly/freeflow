@@ -950,16 +950,27 @@ def get_training_job(job_id):
     })
 
 def delete_training_job(job_id):
-    """Delete a training job"""
+    """Delete or cancel a training job"""
     import shutil
     
     job = TrainingJob.query.get_or_404(job_id)
     
-    # Don't allow deleting jobs that are currently training
-    if job.status == 'training':
-        return jsonify({'error': 'Cannot delete a job that is currently training'}), 400
+    # If job is currently training or pending, mark it as failed (cancel it)
+    if job.status in ['training', 'pending']:
+        job.status = 'failed'
+        job.error_message = 'Training cancelled by user'
+        db.session.commit()
+        
+        # Emit cancellation event
+        if _socketio_instance:
+            _socketio_instance.emit('training_error', {
+                'job_id': job.id,
+                'error': 'Training cancelled by user'
+            })
+        
+        return jsonify({'message': 'Training job cancelled successfully', 'cancelled': True})
     
-    # Delete the model files
+    # Delete the model files for completed/failed jobs
     if job.model_path:
         try:
             # Delete the entire training run directory
@@ -973,7 +984,7 @@ def delete_training_job(job_id):
     db.session.delete(job)
     db.session.commit()
     
-    return jsonify({'message': 'Training job deleted successfully'})
+    return jsonify({'message': 'Training job deleted successfully', 'cancelled': False})
 
 def download_model(job_id):
     """Download trained model weights"""

@@ -24,6 +24,9 @@ let chartData = {
     lr: []
 };
 
+// Store chart data per job ID to preserve history when switching between jobs
+let jobChartData = {};
+
 document.addEventListener('DOMContentLoaded', () => {
     loadProjectInfo();
     setupSocketConnection();
@@ -210,6 +213,9 @@ function updateTrainingProgress(data) {
     chartData.recall.push(data.recall || 0);
     chartData.lr.push(data.lr || 0.01);
     
+    // Save to job-specific storage to preserve history when switching jobs
+    jobChartData[data.job_id] = JSON.parse(JSON.stringify(chartData));
+    
     // Update all charts
     updateCharts();
 }
@@ -260,7 +266,10 @@ function handleTrainingError(data) {
     loadTrainingHistory();
 }
 
-function initializeCharts() {
+function initializeCharts(preserveData = false) {
+    // Save current data if we want to preserve it
+    const savedData = preserveData ? JSON.parse(JSON.stringify(chartData)) : null;
+    
     // Clear existing data
     chartData = {
         epochs: [],
@@ -275,6 +284,11 @@ function initializeCharts() {
         recall: [],
         lr: []
     };
+    
+    // Restore data if preserving
+    if (preserveData && savedData) {
+        chartData = savedData;
+    }
     
     // Destroy existing charts
     if (lossChart) lossChart.destroy();
@@ -556,14 +570,12 @@ async function loadTrainingHistory() {
                         </div>
                         ${isActive ? '<div style="margin-top: 0.5rem; color: var(--primary-color); font-size: 0.75rem;">👁️ Currently viewing</div>' : ''}
                     </div>
-                    ${!isRunning ? `
-                        <button 
-                            onclick="event.stopPropagation(); deleteTrainingJob(${job.id})" 
-                            style="position: absolute; top: 1rem; right: 1rem; background: var(--error); color: white; border: none; padding: 0.25rem 0.5rem; border-radius: 0.25rem; cursor: pointer; font-size: 0.75rem;"
-                            title="Delete job">
-                            🗑️
-                        </button>
-                    ` : ''}
+                    <button 
+                        onclick="event.stopPropagation(); deleteTrainingJob(${job.id}, ${isRunning})" 
+                        style="position: absolute; top: 1rem; right: 1rem; background: var(--error); color: white; border: none; padding: 0.25rem 0.5rem; border-radius: 0.25rem; cursor: pointer; font-size: 0.75rem;"
+                        title="${isRunning ? 'Cancel training' : 'Delete job'}">
+                        ${isRunning ? '⏹️' : '🗑️'}
+                    </button>
                 </div>
             `;
         }).join('');
@@ -599,12 +611,37 @@ async function viewTrainingJob(jobId) {
             displayJobMetrics(job.metrics);
             showToast('Viewing completed job #' + jobId, 'info');
         } 
-        // If job is still running, initialize fresh charts for live updates
+        // If job is still running, restore chart data if we have it, otherwise initialize fresh
         else if (job.status === 'training' || job.status === 'pending') {
-            initializeCharts();
+            // Check if we have saved chart data for this job
+            if (jobChartData[jobId]) {
+                // Restore the saved chart data BEFORE initializing charts
+                chartData = JSON.parse(JSON.stringify(jobChartData[jobId]));
+                // Reinitialize charts while preserving the data
+                initializeCharts(true);
+                // Update charts to show the restored data
+                updateCharts();
+                
+                // Update metric cards with latest values
+                if (chartData.epochs.length > 0) {
+                    const lastIdx = chartData.epochs.length - 1;
+                    document.getElementById('currentEpoch').textContent = `${chartData.epochs[lastIdx]} / ?`;
+                    document.getElementById('trainBoxLoss').textContent = (chartData.trainBoxLoss[lastIdx] || 0).toFixed(4);
+                    document.getElementById('trainClsLoss').textContent = (chartData.trainClsLoss[lastIdx] || 0).toFixed(4);
+                    document.getElementById('trainDflLoss').textContent = (chartData.trainDflLoss[lastIdx] || 0).toFixed(4);
+                    document.getElementById('valBoxLoss').textContent = (chartData.valBoxLoss[lastIdx] || 0).toFixed(4);
+                    document.getElementById('valClsLoss').textContent = (chartData.valClsLoss[lastIdx] || 0).toFixed(4);
+                    document.getElementById('map50').textContent = (chartData.map50[lastIdx] || 0).toFixed(4);
+                }
+                
+                showToast('Resumed viewing live job #' + jobId + ' with ' + chartData.epochs.length + ' epochs', 'info');
+            } else {
+                // Initialize fresh charts for first-time viewing
+                initializeCharts(false);
+                showToast('Now viewing live job #' + jobId, 'info');
+            }
             // Reconnect socket to ensure we receive updates for this job
             setupSocketConnection();
-            showToast('Now viewing live job #' + jobId, 'info');
         }
         
         // Reload history to update active indicator
@@ -664,23 +701,36 @@ function displayJobMetrics(metrics) {
     }
 }
 
-async function deleteTrainingJob(jobId) {
-    if (!confirm(`Delete training job #${jobId}? This cannot be undone.`)) {
+async function deleteTrainingJob(jobId, isRunning) {
+    const action = isRunning ? 'cancel' : 'delete';
+    const message = isRunning 
+        ? `Cancel training job #${jobId}? The job will be stopped.`
+        : `Delete training job #${jobId}? This cannot be undone.`;
+    
+    if (!confirm(message)) {
         return;
     }
     
     try {
-        await apiCall(`/api/training/${jobId}`, {
+        const result = await apiCall(`/api/training/${jobId}`, {
             method: 'DELETE'
         });
         
-        showToast('Training job deleted', 'success');
+        const successMessage = result.cancelled 
+            ? 'Training job cancelled'
+            : 'Training job deleted';
+        showToast(successMessage, 'success');
         
-        // If we were viewing this job, clear the charts
+        // Clean up stored chart data
+        if (jobChartData[jobId]) {
+            delete jobChartData[jobId];
+        }
+        
+        // If we were viewing this job, show config panel
         if (currentJobId === jobId) {
             currentJobId = null;
-            document.getElementById('trainingCharts').style.display = 'none';
-            document.getElementById('trainingStatus').innerHTML = '<p class="empty-state">No training in progress</p>';
+            activeJobIds.delete(jobId);
+            showConfigPanel();
         }
         
         await loadTrainingHistory();
