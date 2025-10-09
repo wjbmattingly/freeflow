@@ -201,6 +201,31 @@ def train_yolo_model(job_id, socketio):
                     job.test_precision = float(test_results.box.mp) if hasattr(test_results.box, 'mp') else 0.0
                     job.test_recall = float(test_results.box.mr) if hasattr(test_results.box, 'mr') else 0.0
                     
+                    # Extract per-class metrics
+                    class_metrics = []
+                    if hasattr(test_results.box, 'maps') and hasattr(test_results.box, 'p') and hasattr(test_results.box, 'r'):
+                        # maps: per-class mAP@50
+                        # p: per-class precision
+                        # r: per-class recall
+                        maps = test_results.box.maps  # Per-class mAP@50
+                        precisions = test_results.box.p  # Per-class precision
+                        recalls = test_results.box.r  # Per-class recall
+                        
+                        # Get class names from project
+                        ordered_classes = sorted(project.classes, key=lambda c: c.id)
+                        
+                        for idx, cls in enumerate(ordered_classes):
+                            if idx < len(maps):
+                                class_metrics.append({
+                                    'class': cls.name,
+                                    'map50': float(maps[idx]) if idx < len(maps) else 0.0,
+                                    'precision': float(precisions[idx]) if idx < len(precisions) else 0.0,
+                                    'recall': float(recalls[idx]) if idx < len(recalls) else 0.0
+                                })
+                        
+                        job.class_metrics = json.dumps(class_metrics)
+                        print(f"✅ Saved per-class metrics for {len(class_metrics)} classes")
+                    
                     print(f"✅ Test Metrics:")
                     print(f"   mAP@50: {job.test_map50:.1%}")
                     print(f"   Precision: {job.test_precision:.1%}")

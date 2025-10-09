@@ -101,6 +101,10 @@ class TrainingJob(db.Model):
     test_precision = db.Column(db.Float)
     test_recall = db.Column(db.Float)
     
+    # Per-class metrics stored as JSON
+    # Format: [{"class": "class_name", "precision": 0.95, "recall": 0.92, "map50": 0.94}, ...]
+    class_metrics = db.Column(db.Text)
+    
     started_at = db.Column(db.DateTime)
     completed_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

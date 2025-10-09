@@ -3,14 +3,32 @@
 let performanceChart, boxLossChart, classLossChart, dflLossChart;
 let previewCanvas, previewCtx;
 let currentTestImage = null;
+let projectClasses = {}; // Map of class_id -> {name, color}
 
 document.addEventListener('DOMContentLoaded', () => {
     previewCanvas = document.getElementById('previewCanvas');
     previewCtx = previewCanvas.getContext('2d');
     
+    loadProjectClasses();
     loadModelData();
     initializeCharts();
 });
+
+async function loadProjectClasses() {
+    try {
+        const classes = await apiCall(`/api/projects/${PROJECT_ID}/classes`);
+        // Create a map of class_id -> {name, color}
+        classes.forEach(cls => {
+            projectClasses[cls.id] = {
+                name: cls.name,
+                color: cls.color
+            };
+        });
+        console.log('Loaded project classes:', projectClasses);
+    } catch (error) {
+        console.error('Failed to load project classes:', error);
+    }
+}
 
 async function loadModelData() {
     try {
@@ -241,20 +259,46 @@ async function loadTestSamples() {
 
 async function loadClassPrecision() {
     try {
-        const classes = await apiCall(`/api/projects/${PROJECT_ID}/classes`);
+        // Get model data to fetch per-class metrics
+        const model = await apiCall(`/api/training/${MODEL_ID}`);
         
-        // For now, show all classes with 100% (we can enhance this later with actual per-class metrics)
-        const barsHtml = classes.map(cls => `
-            <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 0.75rem;">
-                <div style="width: 100px; font-size: 0.875rem;">${cls.name}</div>
-                <div style="flex: 1; background: var(--hover); height: 24px; border-radius: 12px; position: relative; overflow: hidden;">
-                    <div style="background: linear-gradient(90deg, rgb(124, 58, 237) 0%, rgba(124, 58, 237, 0.7) 100%); height: 100%; width: 100%; border-radius: 12px;"></div>
+        if (model.class_metrics && model.class_metrics.length > 0) {
+            // Use actual per-class metrics
+            const barsHtml = model.class_metrics.map(cls => {
+                // Use precision for the bar display (you could also use map50 or recall)
+                const precision = cls.precision || 0;
+                const percentage = (precision * 100).toFixed(1);
+                
+                return `
+                    <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 0.75rem;">
+                        <div style="width: 120px; font-size: 0.875rem; font-weight: 500;">${cls.class}</div>
+                        <div style="flex: 1; background: var(--hover); height: 24px; border-radius: 12px; position: relative; overflow: hidden;">
+                            <div style="background: linear-gradient(90deg, rgb(124, 58, 237) 0%, rgba(124, 58, 237, 0.7) 100%); height: 100%; width: ${percentage}%; border-radius: 12px; transition: width 0.3s ease;"></div>
+                        </div>
+                        <div style="width: 80px; text-align: right; font-size: 0.875rem;">
+                            <div style="font-weight: 500;">${percentage}%</div>
+                            <div style="font-size: 0.75rem; color: var(--text-secondary);">P: ${(cls.precision * 100).toFixed(1)}% R: ${(cls.recall * 100).toFixed(1)}%</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            
+            document.getElementById('classPrecisionBars').innerHTML = barsHtml;
+        } else {
+            // Fallback: show project classes with N/A
+            const classes = await apiCall(`/api/projects/${PROJECT_ID}/classes`);
+            const barsHtml = classes.map(cls => `
+                <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 0.75rem;">
+                    <div style="width: 120px; font-size: 0.875rem; font-weight: 500;">${cls.name}</div>
+                    <div style="flex: 1; background: var(--hover); height: 24px; border-radius: 12px; position: relative; overflow: hidden;">
+                        <div style="background: linear-gradient(90deg, rgba(124, 58, 237, 0.3) 0%, rgba(124, 58, 237, 0.2) 100%); height: 100%; width: 0%; border-radius: 12px;"></div>
+                    </div>
+                    <div style="width: 80px; text-align: right; font-size: 0.875rem; color: var(--text-secondary);">N/A</div>
                 </div>
-                <div style="width: 50px; text-align: right; font-size: 0.875rem; font-weight: 500;">100%</div>
-            </div>
-        `).join('');
-        
-        document.getElementById('classPrecisionBars').innerHTML = barsHtml;
+            `).join('');
+            
+            document.getElementById('classPrecisionBars').innerHTML = barsHtml;
+        }
     } catch (error) {
         console.error('Failed to load class precision:', error);
     }
@@ -382,16 +426,21 @@ function drawPredictionsWithClasses(predictions, imgWidth, imgHeight) {
         const w = pred.width * imgWidth;
         const h = pred.height * imgHeight;
         
+        // Get class color from project classes, fallback to purple
+        const classInfo = projectClasses[pred.class_id];
+        const color = classInfo ? classInfo.color : '#7C3AED';
+        const className = pred.class_name || (classInfo ? classInfo.name : 'Object');
+        
         // Draw box
-        previewCtx.strokeStyle = '#7C3AED';
+        previewCtx.strokeStyle = color;
         previewCtx.lineWidth = 3;
         previewCtx.strokeRect(x, y, w, h);
         
         // Draw label with class name and confidence
-        const label = `${pred.class_name || 'Object'} ${(pred.confidence * 100).toFixed(0)}%`;
+        const label = `${className} ${(pred.confidence * 100).toFixed(0)}%`;
         previewCtx.font = '16px sans-serif';
         const textWidth = previewCtx.measureText(label).width;
-        previewCtx.fillStyle = '#7C3AED';
+        previewCtx.fillStyle = color;
         previewCtx.fillRect(x, y - 25, textWidth + 10, 25);
         
         // Draw label text
