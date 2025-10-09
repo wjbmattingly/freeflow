@@ -31,7 +31,10 @@ function displayProjects(projectsToShow) {
     grid.innerHTML = projectsToShow.map(project => `
         <div class="project-card" onclick="location.href='/project/${project.id}'">
             <div class="project-thumbnail">
-                📊
+                <img src="/api/projects/${project.id}/thumbnail" 
+                     alt="${project.name}" 
+                     style="width: 100%; height: 100%; object-fit: cover;"
+                     onerror="this.parentElement.innerHTML='📊'">
             </div>
             <div class="project-info">
                 <span class="project-type-badge">Object Detection</span>

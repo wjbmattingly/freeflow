@@ -19,6 +19,7 @@
         <button class="tab" data-tab="classes">Classes & Tags</button>
         <button class="tab" data-tab="datasets">Dataset Versions</button>
         <button class="tab" data-tab="versions">Models</button>
+        <button class="tab" data-tab="settings">Settings</button>
     </div>
     <div class="tab-content active" id="dataTab">
         <div class="data-actions">
@@ -123,6 +124,52 @@
             </p>
             <div id="versionsList">
                 <!-- Trained models will be loaded here -->
+            </div>
+        </div>
+    </div>
+    
+    <div class="tab-content" id="settingsTab">
+        <div style="max-width: 800px;">
+            <h3 style="margin-bottom: 1.5rem;">Project Settings</h3>
+            
+            <!-- Project Name -->
+            <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 0.75rem; padding: 2rem; margin-bottom: 1.5rem;">
+                <h4 style="margin-bottom: 1rem;">Project Name</h4>
+                <div style="display: flex; gap: 1rem; align-items: center;">
+                    <input type="text" id="projectNameInput" style="flex: 1; padding: 0.75rem; border: 1px solid var(--border); border-radius: 0.5rem;" placeholder="Project name">
+                    <button class="btn btn-primary" onclick="updateProjectName()">Save Name</button>
+                </div>
+            </div>
+            
+            <!-- Project Thumbnail -->
+            <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 0.75rem; padding: 2rem;">
+                <h4 style="margin-bottom: 1rem;">Project Thumbnail</h4>
+                <p style="color: var(--text-secondary); margin-bottom: 1.5rem; font-size: 0.875rem;">
+                    Choose an image from your project or upload a custom thumbnail
+                </p>
+                
+                <!-- Current Thumbnail Preview -->
+                <div style="margin-bottom: 1.5rem;">
+                    <label style="display: block; font-weight: 500; margin-bottom: 0.5rem;">Current Thumbnail:</label>
+                    <div style="border: 2px solid var(--border); border-radius: 0.5rem; padding: 1rem; display: inline-block;">
+                        <img id="currentThumbnail" style="max-width: 200px; max-height: 200px; display: block;">
+                    </div>
+                </div>
+                
+                <!-- Thumbnail Options -->
+                <div style="display: flex; gap: 1rem; margin-bottom: 1.5rem;">
+                    <button class="btn btn-secondary" onclick="showThumbnailSelector()">📷 Select from Images</button>
+                    <button class="btn btn-secondary" onclick="document.getElementById('customThumbnailInput').click()">⬆️ Upload Custom</button>
+                    <input type="file" id="customThumbnailInput" accept="image/*" style="display: none;" onchange="uploadCustomThumbnail()">
+                </div>
+                
+                <!-- Image Selector (hidden by default) -->
+                <div id="thumbnailSelector" style="display: none; margin-top: 1.5rem;">
+                    <h5 style="margin-bottom: 1rem;">Select an Image:</h5>
+                    <div id="thumbnailGridSelector" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 1rem; max-height: 400px; overflow-y: auto; padding: 1rem; background: var(--background); border-radius: 0.5rem;">
+                        <!-- Images will be loaded here -->
+                    </div>
+                </div>
             </div>
         </div>
     </div>

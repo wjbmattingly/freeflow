@@ -7,6 +7,8 @@ class Project(db.Model):
     name = db.Column(db.String(200), nullable=False)
     project_type = db.Column(db.String(50), nullable=False)  # object_detection, classification, etc.
     annotation_group = db.Column(db.String(200))
+    thumbnail_image_id = db.Column(db.Integer)  # Reference to an image (stored as ID, not foreign key to avoid circular deps)
+    thumbnail_path = db.Column(db.String(1000))  # Custom uploaded thumbnail
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     

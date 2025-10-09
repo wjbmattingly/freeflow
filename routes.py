@@ -144,10 +144,112 @@ def delete_project(project_id):
         except:
             pass
     
+    # Delete custom thumbnail if exists
+    if project.thumbnail_path and os.path.exists(project.thumbnail_path):
+        try:
+            os.remove(project.thumbnail_path)
+        except:
+            pass
+    
     db.session.delete(project)
     db.session.commit()
     
     return jsonify({'message': 'Project deleted successfully'})
+
+def update_project_settings(project_id):
+    """Update project settings (name, thumbnail)"""
+    project = Project.query.get_or_404(project_id)
+    data = request.json
+    
+    # Update name if provided
+    if 'name' in data:
+        project.name = data['name']
+    
+    # Update thumbnail if provided
+    if 'thumbnail_image_id' in data:
+        if data['thumbnail_image_id'] is None:
+            # Clear thumbnail
+            project.thumbnail_image_id = None
+            project.thumbnail_path = None
+        else:
+            # Set to an existing image
+            image_id = data['thumbnail_image_id']
+            image = Image.query.filter_by(id=image_id, project_id=project_id).first()
+            if image:
+                project.thumbnail_image_id = image_id
+                project.thumbnail_path = None
+            else:
+                return jsonify({'error': 'Image not found'}), 404
+    
+    project.updated_at = datetime.utcnow()
+    db.session.commit()
+    
+    return jsonify({'message': 'Project settings updated successfully'})
+
+def upload_project_thumbnail(project_id):
+    """Upload a custom thumbnail for a project"""
+    project = Project.query.get_or_404(project_id)
+    
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+    
+    if not allowed_file(file.filename):
+        return jsonify({'error': 'Invalid file type'}), 400
+    
+    # Save thumbnail
+    from flask import current_app
+    thumbnails_folder = os.path.join(current_app.config['UPLOAD_FOLDER'], 'thumbnails')
+    os.makedirs(thumbnails_folder, exist_ok=True)
+    
+    filename = secure_filename(file.filename)
+    unique_filename = f"proj_{project_id}_{uuid.uuid4()}_{filename}"
+    filepath = os.path.join(thumbnails_folder, unique_filename)
+    file.save(filepath)
+    
+    # Delete old custom thumbnail if exists
+    if project.thumbnail_path and os.path.exists(project.thumbnail_path):
+        try:
+            os.remove(project.thumbnail_path)
+        except Exception as e:
+            print(f"Failed to delete old thumbnail: {e}")
+    
+    # Update project
+    project.thumbnail_path = filepath
+    project.thumbnail_image_id = None
+    project.updated_at = datetime.utcnow()
+    db.session.commit()
+    
+    return jsonify({
+        'message': 'Thumbnail uploaded successfully',
+        'thumbnail_path': filepath
+    })
+
+def get_project_thumbnail(project_id):
+    """Get project thumbnail image"""
+    from flask import send_file
+    
+    project = Project.query.get_or_404(project_id)
+    
+    # Check if custom thumbnail exists
+    if project.thumbnail_path and os.path.exists(project.thumbnail_path):
+        return send_file(project.thumbnail_path)
+    
+    # Check if thumbnail image ID is set
+    if project.thumbnail_image_id:
+        image = Image.query.get(project.thumbnail_image_id)
+        if image and os.path.exists(image.filepath):
+            return send_file(image.filepath)
+    
+    # Return placeholder or first image
+    first_image = Image.query.filter_by(project_id=project_id).order_by(Image.uploaded_at).first()
+    if first_image and os.path.exists(first_image.filepath):
+        return send_file(first_image.filepath)
+    
+    return jsonify({'error': 'No thumbnail available'}), 404
 
 def upload_images(project_id):
     """Upload images or PDFs to a project"""
@@ -201,6 +303,14 @@ def upload_images(project_id):
     
     project.updated_at = datetime.utcnow()
     db.session.commit()
+    
+    # Set first uploaded image as project thumbnail if no thumbnail exists
+    if not project.thumbnail_image_id and not project.thumbnail_path:
+        first_image = Image.query.filter_by(project_id=project_id).order_by(Image.uploaded_at).first()
+        if first_image:
+            project.thumbnail_image_id = first_image.id
+            db.session.commit()
+            print(f"✅ Set project thumbnail to first image (ID: {first_image.id})")
     
     return jsonify({
         'message': f'Uploaded {len(uploaded_images)} images',
@@ -855,9 +965,26 @@ def predict_annotations(project_id):
                 cls_id = int(box.cls[0])
                 confidence = float(box.conf[0])
                 
+                # Get class mapping if provided
+                class_mapping = data.get('class_mapping', {})
+                
                 # Map model class to project class
-                # Assume model classes are in same order as project classes
-                if cls_id < len(project.classes):
+                if class_mapping and str(cls_id) in class_mapping:
+                    # Use explicit mapping
+                    mapped_class_id = int(class_mapping[str(cls_id)])
+                    mapped_class = next((c for c in project.classes if c.id == mapped_class_id), None)
+                    if mapped_class:
+                        predictions.append({
+                            'class_id': mapped_class.id,
+                            'class_name': mapped_class.name,
+                            'x_center': x_center,
+                            'y_center': y_center,
+                            'width': width,
+                            'height': height,
+                            'confidence': confidence
+                        })
+                elif cls_id < len(project.classes):
+                    # Assume model classes are in same order as project classes
                     predictions.append({
                         'class_id': project.classes[cls_id].id,
                         'class_name': project.classes[cls_id].name,
@@ -873,6 +1000,57 @@ def predict_annotations(project_id):
     except Exception as e:
         print(f"Prediction error: {e}")
         return jsonify({'error': f'Prediction failed: {str(e)}'}), 500
+
+def get_model_classes(job_id):
+    """Get class names from a trained model"""
+    job = TrainingJob.query.get_or_404(job_id)
+    
+    if not job.model_path or not os.path.exists(job.model_path):
+        return jsonify({'error': 'Model not found'}), 404
+    
+    try:
+        from ultralytics import YOLO
+        
+        # Load the model to get its class names
+        model = YOLO(job.model_path)
+        
+        # Get class names from the model
+        if hasattr(model, 'names') and model.names:
+            classes = [{'id': i, 'name': name} for i, name in model.names.items()]
+            return jsonify({'classes': classes})
+        else:
+            # Fallback: get classes from the project
+            project = Project.query.get(job.project_id)
+            classes = [{'id': i, 'name': cls.name} for i, cls in enumerate(project.classes)]
+            return jsonify({'classes': classes})
+            
+    except Exception as e:
+        print(f"Error loading model classes: {e}")
+        return jsonify({'error': str(e)}), 500
+
+def get_custom_model_classes(project_id, model_id):
+    """Get class names from a custom uploaded model"""
+    custom_model = CustomModel.query.get_or_404(model_id)
+    
+    if not custom_model.file_path or not os.path.exists(custom_model.file_path):
+        return jsonify({'error': 'Model not found'}), 404
+    
+    try:
+        from ultralytics import YOLO
+        
+        # Load the model to get its class names
+        model = YOLO(custom_model.file_path)
+        
+        # Get class names from the model
+        if hasattr(model, 'names') and model.names:
+            classes = [{'id': i, 'name': name} for i, name in model.names.items()]
+            return jsonify({'classes': classes})
+        else:
+            return jsonify({'error': 'Could not extract classes from model'}), 500
+            
+    except Exception as e:
+        print(f"Error loading custom model classes: {e}")
+        return jsonify({'error': str(e)}), 500
 
 def get_external_models(project_id):
     """Get list of external models available in output_models folder"""

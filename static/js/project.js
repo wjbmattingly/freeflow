@@ -526,6 +526,11 @@ function setupTabs() {
             
             tab.classList.add('active');
             document.getElementById(`${tabName}Tab`).classList.add('active');
+            
+            // Load settings when settings tab is clicked
+            if (tabName === 'settings') {
+                loadSettings();
+            }
         });
     });
 }
@@ -893,5 +898,107 @@ function formatDate(dateString) {
     if (diffDays < 7) return `${diffDays} days ago`;
     
     return date.toLocaleDateString();
+}
+
+// ==================== SETTINGS TAB ====================
+
+async function loadSettings() {
+    // Load current project name
+    document.getElementById('projectNameInput').value = project.name;
+    
+    // Load current thumbnail
+    document.getElementById('currentThumbnail').src = `/api/projects/${PROJECT_ID}/thumbnail`;
+    document.getElementById('currentThumbnail').onerror = function() {
+        this.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect fill="%23eee" width="200" height="200"/><text x="50%" y="50%" text-anchor="middle" fill="%23999" font-size="16">No thumbnail</text></svg>';
+    };
+}
+
+async function updateProjectName() {
+    const newName = document.getElementById('projectNameInput').value.trim();
+    if (!newName) {
+        showToast('Please enter a project name', 'error');
+        return;
+    }
+    
+    try {
+        await apiCall(`/api/projects/${PROJECT_ID}`, {
+            method: 'PUT',
+            body: JSON.stringify({ name: newName })
+        });
+        
+        project.name = newName;
+        document.getElementById('projectName').textContent = newName;
+        document.title = `${newName} - FreeFlow`;
+        showToast('Project name updated successfully', 'success');
+    } catch (error) {
+        showToast('Failed to update project name', 'error');
+    }
+}
+
+async function showThumbnailSelector() {
+    const selector = document.getElementById('thumbnailSelector');
+    
+    if (selector.style.display === 'none') {
+        // Load all images
+        const grid = document.getElementById('thumbnailGridSelector');
+        grid.innerHTML = allImages.map(img => `
+            <div onclick="selectThumbnailImage(${img.id})" style="cursor: pointer; border: 2px solid var(--border); border-radius: 0.5rem; overflow: hidden; transition: all 0.2s; position: relative;" onmouseover="this.style.borderColor='var(--primary-color)'" onmouseout="this.style.borderColor='var(--border)'">
+                <img src="/api/images/${img.id}" style="width: 100%; height: 120px; object-fit: cover; display: block;">
+                <div style="position: absolute; top: 0.25rem; right: 0.25rem; background: var(--primary-color); color: white; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; display: none;" id="selected-${img.id}">✓</div>
+            </div>
+        `).join('');
+        
+        selector.style.display = 'block';
+    } else {
+        selector.style.display = 'none';
+    }
+}
+
+async function selectThumbnailImage(imageId) {
+    try {
+        await apiCall(`/api/projects/${PROJECT_ID}`, {
+            method: 'PUT',
+            body: JSON.stringify({ thumbnail_image_id: imageId })
+        });
+        
+        // Update preview
+        document.getElementById('currentThumbnail').src = `/api/images/${imageId}`;
+        
+        // Hide selector
+        document.getElementById('thumbnailSelector').style.display = 'none';
+        
+        showToast('Thumbnail updated successfully', 'success');
+    } catch (error) {
+        showToast('Failed to update thumbnail', 'error');
+    }
+}
+
+async function uploadCustomThumbnail() {
+    const fileInput = document.getElementById('customThumbnailInput');
+    const file = fileInput.files[0];
+    
+    if (!file) return;
+    
+    try {
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        const response = await fetch(`/api/projects/${PROJECT_ID}/thumbnail`, {
+            method: 'POST',
+            body: formData
+        });
+        
+        if (!response.ok) {
+            throw new Error('Upload failed');
+        }
+        
+        // Update preview
+        document.getElementById('currentThumbnail').src = `/api/projects/${PROJECT_ID}/thumbnail?t=${Date.now()}`;
+        
+        showToast('Custom thumbnail uploaded successfully', 'success');
+        fileInput.value = '';
+    } catch (error) {
+        showToast('Failed to upload thumbnail', 'error');
+    }
 }
 

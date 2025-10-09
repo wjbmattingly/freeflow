@@ -197,10 +197,25 @@ function setupCanvas() {
     canvas.addEventListener('wheel', handleWheel);
 }
 
-function handleMouseDown(e) {
+function getCanvasCoordinates(e) {
+    // Transform mouse coordinates to canvas coordinates accounting for zoom and pan
     const rect = canvas.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / canvas.width;
-    const y = (e.clientY - rect.top) / canvas.height;
+    const pixelX = e.clientX - rect.left;
+    const pixelY = e.clientY - rect.top;
+    
+    // Normalize to 0-1 range
+    const normX = pixelX / canvas.width;
+    const normY = pixelY / canvas.height;
+    
+    // Account for zoom and pan (inverse transformation)
+    const x = (normX / zoom) - panX;
+    const y = (normY / zoom) - panY;
+    
+    return { x, y };
+}
+
+function handleMouseDown(e) {
+    const { x, y } = getCanvasCoordinates(e);
     
     // Check if clicking on a handle of selected annotation
     if (selectedAnnotation) {
@@ -276,9 +291,7 @@ function getHandleAtPosition(x, y, annotation) {
 }
 
 function handleMouseMove(e) {
-    const rect = canvas.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / canvas.width;
-    const y = (e.clientY - rect.top) / canvas.height;
+    const { x, y } = getCanvasCoordinates(e);
     
     // Update cursor based on position
     if (!isDrawing && !isDragging && selectedAnnotation) {
@@ -417,14 +430,15 @@ function drawCanvas() {
     
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
-    // Draw image
+    // Apply zoom and pan transformation for both image and annotations
     ctx.save();
     ctx.scale(zoom, zoom);
     ctx.translate(panX, panY);
-    ctx.drawImage(currentImage, 0, 0, canvas.width, canvas.height);
-    ctx.restore();
     
-    // Draw annotations
+    // Draw image
+    ctx.drawImage(currentImage, 0, 0, canvas.width, canvas.height);
+    
+    // Draw annotations (with zoom/pan applied)
     annotations.forEach((ann, index) => {
         const cls = classes.find(c => c.id === ann.class_id);
         if (!cls) return;
@@ -436,19 +450,26 @@ function drawCanvas() {
         const h = ann.height * canvas.height;
         
         ctx.strokeStyle = cls.color;
-        ctx.lineWidth = isSelected ? 3 : 2;
+        ctx.lineWidth = (isSelected ? 3 : 2) / zoom; // Scale line width inversely with zoom
         ctx.strokeRect(x, y, w, h);
         
         // Draw label
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset transform for text to keep it readable
+        ctx.scale(zoom, zoom);
+        ctx.translate(panX, panY);
+        
         ctx.fillStyle = cls.color;
-        ctx.fillRect(x, y - 24, ctx.measureText(cls.name).width + 12, 24);
+        const textWidth = ctx.measureText(cls.name).width;
+        ctx.fillRect(x, y - 24, textWidth + 12, 24);
         ctx.fillStyle = 'white';
         ctx.font = '14px sans-serif';
         ctx.fillText(cls.name, x + 6, y - 6);
+        ctx.restore();
         
         // Draw resize handles for selected annotation
         if (isSelected) {
-            const handleSize = 8;
+            const handleSize = 8 / zoom; // Scale handles inversely with zoom
             ctx.fillStyle = cls.color;
             
             // Corner handles
@@ -474,11 +495,13 @@ function drawCanvas() {
         const h = currentBox.height * canvas.height;
         
         ctx.strokeStyle = cls.color;
-        ctx.lineWidth = 2;
-        ctx.setLineDash([5, 5]);
+        ctx.lineWidth = 2 / zoom; // Scale line width inversely with zoom
+        ctx.setLineDash([5 / zoom, 5 / zoom]); // Scale dash pattern inversely with zoom
         ctx.strokeRect(x, y, w, h);
         ctx.setLineDash([]);
     }
+    
+    ctx.restore();
     
     document.getElementById('annotationCount').textContent = annotations.length;
 }
@@ -815,22 +838,26 @@ function renderAssistClasses() {
             const [modelType, modelId] = value.split(':');
             
             if (modelType === 'trained') {
-                // Using a trained model
+                // Using a trained model - load its classes
                 selectedExternalModel = null;
-                document.getElementById('classMappingSection').style.display = 'none';
                 selectedModelInfo = { type: 'trained', id: parseInt(modelId) };
-                classMapping = {};
+                
+                // Load model classes
+                loadModelClassesAndShowMapping(parseInt(modelId), 'trained');
+                
             } else if (modelType === 'custom') {
-                // Using a custom uploaded model
+                // Using a custom uploaded model - load its classes
                 selectedExternalModel = null;
-                document.getElementById('classMappingSection').style.display = 'none';
                 const selectedOption = this.options[this.selectedIndex];
                 selectedModelInfo = { 
                     type: 'custom', 
                     id: parseInt(modelId),
                     filePath: selectedOption.dataset.filePath 
                 };
-                classMapping = {};
+                
+                // Load model classes
+                loadModelClassesAndShowMapping(parseInt(modelId), 'custom');
+                
             } else if (modelType === 'external') {
                 // Using an external model
                 selectedExternalModel = modelId;
@@ -867,6 +894,32 @@ function renderAssistClasses() {
         // Trigger change to initialize
         const event = new Event('change');
         selectElement.dispatchEvent(event);
+    }
+}
+
+async function loadModelClassesAndShowMapping(modelId, modelType) {
+    try {
+        let url;
+        if (modelType === 'trained') {
+            url = `/api/training/${modelId}/classes`;
+        } else if (modelType === 'custom') {
+            url = `/api/projects/${PROJECT_ID}/custom-models/${modelId}/classes`;
+        }
+        
+        const response = await apiCall(url);
+        const modelClasses = response.classes;
+        
+        if (modelClasses && modelClasses.length > 0) {
+            document.getElementById('classMappingSection').style.display = 'block';
+            renderClassMapping(modelClasses);
+        } else {
+            document.getElementById('classMappingSection').style.display = 'none';
+            classMapping = {};
+        }
+    } catch (error) {
+        console.error('Failed to load model classes:', error);
+        document.getElementById('classMappingSection').style.display = 'none';
+        classMapping = {};
     }
 }
 
@@ -979,7 +1032,8 @@ async function runSingleLabelAssist() {
                 body: JSON.stringify({
                     image_id: imageData.id,
                     confidence,
-                    model_path: trainedModel.model_path
+                    model_path: trainedModel.model_path,
+                    class_mapping: classMapping
                 })
             });
         } else if (selectedModelInfo && selectedModelInfo.type === 'custom') {
@@ -990,7 +1044,8 @@ async function runSingleLabelAssist() {
                 body: JSON.stringify({
                     image_id: imageData.id,
                     confidence,
-                    model_path: customModel.file_path
+                    model_path: customModel.file_path,
+                    class_mapping: classMapping
                 })
             });
         } else {
@@ -999,7 +1054,8 @@ async function runSingleLabelAssist() {
                 method: 'POST',
                 body: JSON.stringify({
                     image_id: imageData.id,
-                    confidence
+                    confidence,
+                    class_mapping: classMapping
                 })
             });
         }
@@ -1071,7 +1127,8 @@ async function runAutoLabelAssist() {
                     body: JSON.stringify({
                         image_id: imageData.id,
                         confidence: labelAssistConfig.confidence,
-                        model_path: trainedModel.model_path
+                        model_path: trainedModel.model_path,
+                        class_mapping: classMapping
                     })
                 });
             } else {
@@ -1089,7 +1146,8 @@ async function runAutoLabelAssist() {
                     body: JSON.stringify({
                         image_id: imageData.id,
                         confidence: labelAssistConfig.confidence,
-                        model_path: customModel.file_path
+                        model_path: customModel.file_path,
+                        class_mapping: classMapping
                     })
                 });
             } else {
@@ -1103,7 +1161,8 @@ async function runAutoLabelAssist() {
                 method: 'POST',
                 body: JSON.stringify({
                     image_id: imageData.id,
-                    confidence: labelAssistConfig.confidence
+                    confidence: labelAssistConfig.confidence,
+                    class_mapping: classMapping
                 })
             });
         }
