@@ -1,0 +1,182 @@
+from flask import current_app
+from database import db
+from models import Project, Image, Annotation, Class, DatasetVersion, TrainingJob
+import os
+import yaml
+import shutil
+from datetime import datetime
+import json
+from pathlib import Path
+
+def train_yolo_model(job_id, socketio):
+    """Train YOLO model on annotated data"""
+    from app import app
+    
+    with app.app_context():
+        job = TrainingJob.query.get(job_id)
+        if not job:
+            return
+        
+        project = job.project
+        
+        try:
+            job.status = 'training'
+            job.started_at = datetime.utcnow()
+            db.session.commit()
+            
+            socketio.emit('training_update', {
+                'job_id': job.id,
+                'status': 'training',
+                'message': 'Preparing dataset...'
+            })
+            
+            # Prepare dataset
+            dataset_path = prepare_yolo_dataset(project, job)
+            
+            socketio.emit('training_update', {
+                'job_id': job.id,
+                'status': 'training',
+                'message': 'Starting training...'
+            })
+            
+            # Train model
+            from ultralytics import YOLO
+            
+            model = YOLO('yolo11n.pt')  # Start with pretrained YOLO11 nano model
+            
+            results = model.train(
+                data=os.path.join(dataset_path, 'data.yaml'),
+                epochs=job.epochs,
+                batch=job.batch_size,
+                imgsz=job.image_size,
+                project=os.path.join('training_runs', str(project.id)),
+                name=f'job_{job.id}',
+                exist_ok=True,
+                verbose=True
+            )
+            
+            # Save metrics
+            metrics_data = {
+                'epochs': [],
+                'train_loss': [],
+                'val_loss': [],
+                'map50': [],
+                'map50_95': []
+            }
+            
+            # Read metrics from results
+            if results.results_dict:
+                metrics_path = os.path.join(
+                    'training_runs', str(project.id), f'job_{job.id}', 'results.csv'
+                )
+                if os.path.exists(metrics_path):
+                    import pandas as pd
+                    df = pd.read_csv(metrics_path)
+                    df.columns = df.columns.str.strip()
+                    
+                    for idx, row in df.iterrows():
+                        metrics_data['epochs'].append(int(row['epoch']) if 'epoch' in row else idx)
+                        metrics_data['train_loss'].append(float(row['train/box_loss']) if 'train/box_loss' in row else 0)
+                        metrics_data['val_loss'].append(float(row['val/box_loss']) if 'val/box_loss' in row else 0)
+                        metrics_data['map50'].append(float(row['metrics/mAP50(B)']) if 'metrics/mAP50(B)' in row else 0)
+                        metrics_data['map50_95'].append(float(row['metrics/mAP50-95(B)']) if 'metrics/mAP50-95(B)' in row else 0)
+                        
+                        # Emit progress updates
+                        socketio.emit('training_progress', {
+                            'job_id': job.id,
+                            'epoch': int(row['epoch']) if 'epoch' in row else idx + 1,
+                            'total_epochs': job.epochs,
+                            'train_loss': float(row['train/box_loss']) if 'train/box_loss' in row else 0,
+                            'val_loss': float(row['val/box_loss']) if 'val/box_loss' in row else 0,
+                            'map50': float(row['metrics/mAP50(B)']) if 'metrics/mAP50(B)' in row else 0
+                        })
+            
+            # Save model path
+            model_path = os.path.join(
+                'training_runs', str(project.id), f'job_{job.id}', 'weights', 'best.pt'
+            )
+            
+            job.model_path = model_path
+            job.metrics = json.dumps(metrics_data)
+            job.status = 'completed'
+            job.completed_at = datetime.utcnow()
+            db.session.commit()
+            
+            socketio.emit('training_complete', {
+                'job_id': job.id,
+                'status': 'completed',
+                'message': 'Training completed successfully!',
+                'metrics': metrics_data
+            })
+            
+        except Exception as e:
+            job.status = 'failed'
+            job.completed_at = datetime.utcnow()
+            db.session.commit()
+            
+            socketio.emit('training_error', {
+                'job_id': job.id,
+                'status': 'failed',
+                'error': str(e)
+            })
+
+def prepare_yolo_dataset(project, job):
+    """Prepare dataset in YOLO format"""
+    dataset_path = os.path.join('datasets', str(project.id), f'job_{job.id}')
+    
+    # Create directory structure (including test split)
+    for split in ['train', 'val', 'test']:
+        os.makedirs(os.path.join(dataset_path, 'images', split), exist_ok=True)
+        os.makedirs(os.path.join(dataset_path, 'labels', split), exist_ok=True)
+    
+    # Get images based on dataset version or use all annotated
+    if job.dataset_version_id:
+        version = DatasetVersion.query.get(job.dataset_version_id)
+        splits_data = json.loads(version.image_splits)
+        
+        train_images = [Image.query.get(img_id) for img_id in splits_data['train']]
+        val_images = [Image.query.get(img_id) for img_id in splits_data['val']]
+        test_images = [Image.query.get(img_id) for img_id in splits_data.get('test', [])]
+    else:
+        # Default: use all annotated images with 70/20/10 split
+        annotated_images = [img for img in project.images if img.annotations]
+        train_idx = int(len(annotated_images) * 0.7)
+        val_idx = int(len(annotated_images) * 0.9)
+        
+        train_images = annotated_images[:train_idx]
+        val_images = annotated_images[train_idx:val_idx]
+        test_images = annotated_images[val_idx:]
+    
+    # Process images for all splits
+    for split, images in [('train', train_images), ('val', val_images), ('test', test_images)]:
+        for image in images:
+            # Copy image
+            dest_image = os.path.join(dataset_path, 'images', split, f'{image.id}.jpg')
+            shutil.copy(image.filepath, dest_image)
+            
+            # Create label file
+            label_path = os.path.join(dataset_path, 'labels', split, f'{image.id}.txt')
+            with open(label_path, 'w') as f:
+                for ann in image.annotations:
+                    # Find class index
+                    class_idx = next(
+                        (i for i, cls in enumerate(project.classes) if cls.id == ann.class_id),
+                        0
+                    )
+                    f.write(f"{class_idx} {ann.x_center} {ann.y_center} {ann.width} {ann.height}\n")
+    
+    # Create data.yaml
+    data_yaml = {
+        'path': os.path.abspath(dataset_path),
+        'train': 'images/train',
+        'val': 'images/val',
+        'test': 'images/test',
+        'nc': len(project.classes),
+        'names': [cls.name for cls in project.classes]
+    }
+    
+    with open(os.path.join(dataset_path, 'data.yaml'), 'w') as f:
+        yaml.dump(data_yaml, f)
+    
+    return dataset_path
+

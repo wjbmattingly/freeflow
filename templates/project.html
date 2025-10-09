@@ -1,0 +1,234 @@
+{% extends "base.html" %}
+
+{% block title %}Project - FreeFlow{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="project-header">
+        <div class="breadcrumb">
+            <a href="/">Projects</a> / <span id="projectName">Project</span>
+        </div>
+        <div class="project-actions">
+            <button class="btn btn-secondary" onclick="location.href='/annotate/{{ project_id }}'">Annotate</button>
+            <button class="btn btn-primary" onclick="location.href='/training/{{ project_id }}'">Train Model</button>
+        </div>
+    </div>
+
+    <div class="tabs">
+        <button class="tab active" data-tab="data">Data</button>
+        <button class="tab" data-tab="classes">Classes & Tags</button>
+        <button class="tab" data-tab="datasets">Dataset Versions</button>
+        <button class="tab" data-tab="versions">Models</button>
+    </div>
+    <div class="tab-content active" id="dataTab">
+        <div class="data-actions">
+            <button class="btn btn-primary" onclick="showUploadModal()">Upload More Images</button>
+        </div>
+
+        <div class="images-header">
+            <div class="images-info">
+                <h3>All Images</h3>
+                <p class="section-subtitle">
+                    Showing <span id="showingCount">0</span> of <span id="totalImagesCount">0</span> images
+                    (<span id="annotatedImagesCount">0</span> annotated)
+                </p>
+            </div>
+            <div class="images-controls">
+                <label style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span style="font-size: 0.875rem;">Per page:</span>
+                    <select id="imagesPerPage" onchange="changeImagesPerPage()" style="padding: 0.5rem; border-radius: 0.375rem; border: 1px solid var(--border);">
+                        <option value="10">10</option>
+                        <option value="20" selected>20</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                        <option value="200">200</option>
+                    </select>
+                </label>
+            </div>
+        </div>
+
+        <div id="imagesGrid" class="images-grid">
+            <!-- Images will be loaded here -->
+        </div>
+
+        <div class="pagination-controls" id="paginationControls" style="display: none;">
+            <button class="btn btn-secondary" onclick="previousPage()" id="prevPageBtn">← Previous</button>
+            <span id="pageInfo" style="margin: 0 1rem; font-size: 0.875rem;">Page 1 of 1</span>
+            <button class="btn btn-secondary" onclick="nextPage()" id="nextPageBtn">Next →</button>
+        </div>
+
+        <div class="data-sections" style="margin-top: 2rem;">
+            <div class="data-section">
+                <h3>Batches</h3>
+                <p class="section-subtitle"><span id="unassignedCount">0</span> Batches</p>
+                <div id="unassignedBatches" class="batches-list">
+                    <!-- Batches will be loaded here -->
+                </div>
+            </div>
+
+            <div class="data-section">
+                <h3>Dataset</h3>
+                <p class="section-subtitle"><span id="datasetCount">0</span> Jobs</p>
+                <div id="datasetJobs" class="jobs-list">
+                    <!-- Jobs will be loaded here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="tab-content" id="classesTab">
+        <div class="classes-manager">
+            <h3>Classes</h3>
+            <div id="classesListView" class="classes-list">
+                <!-- Classes will be loaded here -->
+            </div>
+            <button class="btn btn-secondary" onclick="showAddClassModal()">+ Add Class</button>
+        </div>
+    </div>
+
+    <div class="tab-content" id="datasetsTab">
+        <div class="datasets-section">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                <h3>Dataset Versions</h3>
+                <button class="btn btn-primary" onclick="showCreateDatasetModal()">+ Create Version</button>
+            </div>
+            <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">
+                Create versions of your dataset with custom train/validation/test splits for reproducible training.
+            </p>
+            <div id="datasetVersionsList">
+                <!-- Dataset versions will be loaded here -->
+            </div>
+        </div>
+    </div>
+
+    <div class="tab-content" id="versionsTab">
+        <div class="versions-section">
+            <h3>Trained Models</h3>
+            <div id="versionsList">
+                <!-- Training versions will be loaded here -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Create Dataset Version Modal -->
+<div id="createDatasetModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>Create Dataset Version</h2>
+            <button class="close-btn" onclick="closeCreateDatasetModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label>Version Name</label>
+                <input type="text" id="datasetVersionName" placeholder="e.g., v1.0, baseline, final">
+            </div>
+            <div class="form-group">
+                <label>Description (optional)</label>
+                <textarea id="datasetVersionDescription" rows="3" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border); border-radius: 0.5rem;" placeholder="Describe this dataset version..."></textarea>
+            </div>
+            <div class="form-group">
+                <label>Train/Validation/Test Split</label>
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin-top: 0.5rem;">
+                    <div>
+                        <label style="font-size: 0.875rem; color: var(--text-secondary);">Train %</label>
+                        <input type="number" id="trainSplit" value="70" min="0" max="100" step="1">
+                    </div>
+                    <div>
+                        <label style="font-size: 0.875rem; color: var(--text-secondary);">Validation %</label>
+                        <input type="number" id="valSplit" value="20" min="0" max="100" step="1">
+                    </div>
+                    <div>
+                        <label style="font-size: 0.875rem; color: var(--text-secondary);">Test %</label>
+                        <input type="number" id="testSplit" value="10" min="0" max="100" step="1">
+                    </div>
+                </div>
+                <p class="help-text" id="splitTotal">Total: 100%</p>
+            </div>
+            <div class="dataset-preview">
+                <h4 style="font-size: 0.875rem; margin-bottom: 0.5rem;">Preview</h4>
+                <div style="background: var(--hover); padding: 1rem; border-radius: 0.5rem;">
+                    <div style="display: flex; justify-content: space-between; font-size: 0.875rem;">
+                        <span>Annotated images:</span>
+                        <span id="previewAnnotated">0</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; font-size: 0.875rem; margin-top: 0.25rem;">
+                        <span>Train images:</span>
+                        <span id="previewTrain">0</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; font-size: 0.875rem; margin-top: 0.25rem;">
+                        <span>Validation images:</span>
+                        <span id="previewVal">0</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; font-size: 0.875rem; margin-top: 0.25rem;">
+                        <span>Test images:</span>
+                        <span id="previewTest">0</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeCreateDatasetModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="createDatasetVersion()">Create Version</button>
+        </div>
+    </div>
+</div>
+
+<!-- Upload Modal -->
+<div id="uploadModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>Upload Images</h2>
+            <button class="close-btn" onclick="closeUploadModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="upload-area" id="uploadArea">
+                <input type="file" id="fileInput" multiple accept="image/*,.pdf" style="display: none;" onchange="handleFiles(this.files)">
+                <div class="upload-prompt">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4m14-7l-5-5-5 5m5-5v12" stroke="currentColor" stroke-width="2"/>
+                    </svg>
+                    <p>Drag and drop files here or click to browse</p>
+                    <p class="upload-hint">Supports: JPG, PNG, PDF, TIFF</p>
+                </div>
+            </div>
+            <div id="uploadProgress" class="upload-progress" style="display: none;">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <p id="uploadStatus">Uploading...</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Class Modal -->
+<div id="addClassModal" class="modal">
+    <div class="modal-content modal-small">
+        <div class="modal-header">
+            <h2>Add Class</h2>
+            <button class="close-btn" onclick="closeAddClassModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label>Class Name</label>
+                <input type="text" id="newClassName" placeholder="Enter class name">
+            </div>
+            <div class="form-group">
+                <label>Color</label>
+                <input type="color" id="newClassColor" value="#FF6B6B">
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeAddClassModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="addNewClass()">Add Class</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const PROJECT_ID = {{ project_id }};
+</script>
+<script src="{{ url_for('static', filename='js/project.js') }}"></script>
+{% endblock %}
+

@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block title %}Annotate - FreeFlow{% endblock %}
+
+{% block content %}
+<div class="annotate-container">
+    <div class="annotate-header">
+        <button class="btn btn-secondary" onclick="location.href='/project/{{ project_id }}'">← Back</button>
+        <div class="image-nav">
+            <button class="btn-icon" onclick="previousImage()" id="prevBtn">←</button>
+            <span id="imageCounter">0 / 0</span>
+            <button class="btn-icon" onclick="nextImage()" id="nextBtn">→</button>
+        </div>
+        <div class="annotate-actions">
+            <button class="btn btn-secondary" onclick="toggleLabelAssist()" id="assistBtn">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                    <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" stroke="currentColor" stroke-width="2"/>
+                </svg>
+                Label Assist
+            </button>
+            <button class="btn btn-primary" onclick="saveAnnotations()">Save</button>
+        </div>
+    </div>
+
+    <div class="annotate-layout">
+        <div class="sidebar left">
+            <div class="sidebar-section">
+                <h3>Classes</h3>
+                <div id="classesList" class="classes-list">
+                    <!-- Classes will be loaded here -->
+                </div>
+            </div>
+
+            <div class="sidebar-section">
+                <h3>Annotations <span id="annotationCount">0</span></h3>
+                <div id="annotationsList" class="annotations-list">
+                    <!-- Annotations will be listed here -->
+                </div>
+            </div>
+
+            <div class="sidebar-section">
+                <h3>Layers</h3>
+                <div class="layers-toggle">
+                    <label>
+                        <input type="checkbox" checked onchange="toggleAnnotationVisibility()">
+                        Show Annotations
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <div class="canvas-container">
+            <canvas id="annotationCanvas"></canvas>
+            <img id="imageElement" style="display: none;">
+            
+            <!-- Label Assist Panel -->
+            <div id="labelAssistPanel" class="assist-panel" style="display: none;">
+                <div class="assist-header">
+                    <h4>Label Assist</h4>
+                    <button class="close-btn" onclick="closeLabelAssist()">✕</button>
+                </div>
+                <div class="assist-body">
+                    <p>Select the classes to use while labeling.</p>
+                    <div id="assistClassesList">
+                        <!-- Classes for assist will be loaded here -->
+                    </div>
+                    <div class="assist-settings">
+                        <label>
+                            Confidence:
+                            <input type="range" id="confidenceSlider" min="0" max="100" value="50">
+                            <span id="confidenceValue">50%</span>
+                        </label>
+                        <label>
+                            Overlap:
+                            <input type="range" id="overlapSlider" min="0" max="100" value="50">
+                            <span id="overlapValue">50%</span>
+                        </label>
+                    </div>
+                    <button class="btn btn-primary" onclick="runLabelAssist()">Run Assist</button>
+                </div>
+            </div>
+
+            <div class="canvas-controls">
+                <button class="btn-icon" onclick="zoomOut()">−</button>
+                <span id="zoomLevel">100%</span>
+                <button class="btn-icon" onclick="zoomIn()">+</button>
+                <button class="btn-icon" onclick="resetZoom()">Reset</button>
+            </div>
+        </div>
+
+        <div class="sidebar right">
+            <div class="sidebar-section">
+                <h3>History</h3>
+                <div class="history-actions">
+                    <button class="btn-icon" onclick="undo()" title="Undo">↶</button>
+                    <button class="btn-icon" onclick="redo()" title="Redo">↷</button>
+                </div>
+            </div>
+
+            <div class="sidebar-section">
+                <h3>Tags</h3>
+                <p class="empty-state">No Tags Applied</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const PROJECT_ID = {{ project_id }};
+</script>
+<script src="{{ url_for('static', filename='js/annotate.js') }}"></script>
+{% endblock %}
+

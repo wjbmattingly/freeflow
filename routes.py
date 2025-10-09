@@ -1,0 +1,659 @@
+from flask import render_template, request, jsonify, send_from_directory, send_file, current_app
+from database import db
+from models import Project, Image, Annotation, Class, DatasetVersion, TrainingJob
+from werkzeug.utils import secure_filename
+from PIL import Image as PILImage
+import pypdfium2 as pdfium
+from pathlib import Path
+import os
+import json
+from datetime import datetime
+import uuid
+import threading
+
+# App and socketio will be injected by app.py
+_app_instance = None
+_socketio_instance = None
+
+def init_routes(app, socketio):
+    """Initialize routes with app and socketio instances"""
+    global _app_instance, _socketio_instance
+    _app_instance = app
+    _socketio_instance = socketio
+
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'pdf', 'tiff', 'bmp'}
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+# ==================== MAIN PAGES ====================
+
+def index():
+    """Landing page with projects"""
+    return render_template('index.html')
+
+def project_page(project_id):
+    """Project data management page"""
+    return render_template('project.html', project_id=project_id)
+
+def annotate_page(project_id):
+    """Annotation interface"""
+    return render_template('annotate.html', project_id=project_id)
+
+def training_page(project_id):
+    """Training monitoring dashboard"""
+    return render_template('training.html', project_id=project_id)
+
+# Routes will be registered by app.py after import
+
+# ==================== API ENDPOINTS ====================
+
+def get_projects():
+    """Get all projects"""
+    projects = Project.query.order_by(Project.updated_at.desc()).all()
+    return jsonify([{
+        'id': p.id,
+        'name': p.name,
+        'project_type': p.project_type,
+        'annotation_group': p.annotation_group,
+        'created_at': p.created_at.isoformat(),
+        'updated_at': p.updated_at.isoformat(),
+        'image_count': len(p.images),
+        'annotated_count': sum(1 for img in p.images if img.status == 'completed')
+    } for p in projects])
+
+def create_project():
+    """Create a new project"""
+    data = request.json
+    
+    project = Project(
+        name=data['name'],
+        project_type=data.get('project_type', 'object_detection'),
+        annotation_group=data.get('annotation_group', '')
+    )
+    
+    db.session.add(project)
+    db.session.flush()
+    
+    # Add classes
+    classes_data = data.get('classes', [])
+    for cls_data in classes_data:
+        cls = Class(
+            name=cls_data['name'],
+            color=cls_data.get('color', '#FF0000'),
+            project_id=project.id
+        )
+        db.session.add(cls)
+    
+    db.session.commit()
+    
+    return jsonify({'id': project.id, 'message': 'Project created successfully'}), 201
+
+def get_project(project_id):
+    """Get project details"""
+    project = Project.query.get_or_404(project_id)
+    
+    return jsonify({
+        'id': project.id,
+        'name': project.name,
+        'project_type': project.project_type,
+        'annotation_group': project.annotation_group,
+        'created_at': project.created_at.isoformat(),
+        'image_count': len(project.images),
+        'annotated_count': sum(1 for img in project.images if img.status == 'completed'),
+        'classes': [{
+            'id': cls.id,
+            'name': cls.name,
+            'color': cls.color
+        } for cls in project.classes]
+    })
+
+def delete_project(project_id):
+    """Delete a project"""
+    project = Project.query.get_or_404(project_id)
+    
+    # Delete all associated files
+    for image in project.images:
+        try:
+            os.remove(image.filepath)
+        except:
+            pass
+    
+    db.session.delete(project)
+    db.session.commit()
+    
+    return jsonify({'message': 'Project deleted successfully'})
+
+def upload_images(project_id):
+    """Upload images or PDFs to a project"""
+    project = Project.query.get_or_404(project_id)
+    
+    if 'files' not in request.files:
+        return jsonify({'error': 'No files provided'}), 400
+    
+    files = request.files.getlist('files')
+    batch_id = str(uuid.uuid4())
+    uploaded_images = []
+    
+    from flask import current_app
+    project_folder = os.path.join(current_app.config['UPLOAD_FOLDER'], str(project_id))
+    os.makedirs(project_folder, exist_ok=True)
+    
+    for file in files:
+        if file and allowed_file(file.filename):
+            filename = secure_filename(file.filename)
+            file_ext = filename.rsplit('.', 1)[1].lower()
+            
+            if file_ext == 'pdf':
+                # Extract images from PDF
+                pdf_images = extract_images_from_pdf(file, project_folder, batch_id)
+                uploaded_images.extend(pdf_images)
+            else:
+                # Save image directly
+                unique_filename = f"{uuid.uuid4()}_{filename}"
+                filepath = os.path.join(project_folder, unique_filename)
+                file.save(filepath)
+                
+                # Get image dimensions
+                with PILImage.open(filepath) as img:
+                    width, height = img.size
+                
+                # Create database entry
+                image = Image(
+                    filename=filename,
+                    filepath=filepath,
+                    width=width,
+                    height=height,
+                    batch_id=batch_id,
+                    project_id=project_id
+                )
+                db.session.add(image)
+                uploaded_images.append({
+                    'filename': filename,
+                    'width': width,
+                    'height': height
+                })
+    
+    project.updated_at = datetime.utcnow()
+    db.session.commit()
+    
+    return jsonify({
+        'message': f'Uploaded {len(uploaded_images)} images',
+        'batch_id': batch_id,
+        'images': uploaded_images
+    }), 201
+
+def extract_images_from_pdf(pdf_file, output_folder, batch_id):
+    """Extract images from PDF using pdfium"""
+    pdf_images = []
+    
+    # Save PDF temporarily
+    temp_pdf_path = os.path.join(output_folder, f"temp_{uuid.uuid4()}.pdf")
+    pdf_file.save(temp_pdf_path)
+    
+    try:
+        pdf = pdfium.PdfDocument(temp_pdf_path)
+        
+        for page_num in range(len(pdf)):
+            page = pdf[page_num]
+            bitmap = page.render(scale=2.0)  # 2x scale for better quality
+            pil_image = bitmap.to_pil()
+            
+            # Save as PNG
+            image_filename = f"pdf_page_{page_num + 1}_{uuid.uuid4()}.png"
+            image_path = os.path.join(output_folder, image_filename)
+            pil_image.save(image_path, 'PNG')
+            
+            width, height = pil_image.size
+            pdf_images.append({
+                'filename': f"{os.path.basename(pdf_file.filename)} - Page {page_num + 1}",
+                'width': width,
+                'height': height,
+                'filepath': image_path
+            })
+    
+    finally:
+        # Clean up temp PDF
+        try:
+            os.remove(temp_pdf_path)
+        except:
+            pass
+    
+    return pdf_images
+
+def get_project_images(project_id):
+    """Get all images in a project"""
+    project = Project.query.get_or_404(project_id)
+    
+    images = Image.query.filter_by(project_id=project_id).order_by(Image.uploaded_at.desc()).all()
+    
+    # Group by batch
+    batches = {}
+    for img in images:
+        batch_id = img.batch_id or 'unknown'
+        if batch_id not in batches:
+            batches[batch_id] = []
+        batches[batch_id].append({
+            'id': img.id,
+            'filename': img.filename,
+            'width': img.width,
+            'height': img.height,
+            'status': img.status,
+            'uploaded_at': img.uploaded_at.isoformat(),
+            'annotation_count': len(img.annotations)
+        })
+    
+    return jsonify({
+        'batches': [
+            {
+                'batch_id': batch_id,
+                'images': imgs,
+                'count': len(imgs)
+            }
+            for batch_id, imgs in batches.items()
+        ]
+    })
+
+def get_image(image_id):
+    """Get image file"""
+    image = Image.query.get_or_404(image_id)
+    return send_file(image.filepath)
+
+def get_image_annotations(image_id):
+    """Get annotations for an image"""
+    image = Image.query.get_or_404(image_id)
+    
+    return jsonify({
+        'image_id': image.id,
+        'filename': image.filename,
+        'width': image.width,
+        'height': image.height,
+        'status': image.status,
+        'annotations': [{
+            'id': ann.id,
+            'class_id': ann.class_id,
+            'class_name': ann.class_obj.name,
+            'x_center': ann.x_center,
+            'y_center': ann.y_center,
+            'width': ann.width,
+            'height': ann.height,
+            'confidence': ann.confidence,
+            'is_predicted': ann.is_predicted
+        } for ann in image.annotations]
+    })
+
+def save_annotations(image_id):
+    """Save annotations for an image"""
+    image = Image.query.get_or_404(image_id)
+    data = request.json
+    
+    # Delete existing annotations
+    Annotation.query.filter_by(image_id=image_id).delete()
+    
+    # Add new annotations
+    for ann_data in data.get('annotations', []):
+        annotation = Annotation(
+            image_id=image_id,
+            class_id=ann_data['class_id'],
+            x_center=ann_data['x_center'],
+            y_center=ann_data['y_center'],
+            width=ann_data['width'],
+            height=ann_data['height']
+        )
+        db.session.add(annotation)
+    
+    # Update image status
+    image.status = data.get('status', 'completed')
+    
+    db.session.commit()
+    
+    return jsonify({'message': 'Annotations saved successfully'})
+
+def get_project_classes(project_id):
+    """Get all classes for a project"""
+    project = Project.query.get_or_404(project_id)
+    
+    return jsonify([{
+        'id': cls.id,
+        'name': cls.name,
+        'color': cls.color
+    } for cls in project.classes])
+
+def add_class(project_id):
+    """Add a new class to project"""
+    project = Project.query.get_or_404(project_id)
+    data = request.json
+    
+    cls = Class(
+        name=data['name'],
+        color=data.get('color', '#FF0000'),
+        project_id=project_id
+    )
+    db.session.add(cls)
+    db.session.commit()
+    
+    return jsonify({'id': cls.id, 'name': cls.name, 'color': cls.color}), 201
+
+def update_class(project_id, class_id):
+    """Update a class (name and/or color)"""
+    cls = Class.query.filter_by(id=class_id, project_id=project_id).first_or_404()
+    data = request.json
+    
+    if 'name' in data:
+        cls.name = data['name']
+    if 'color' in data:
+        cls.color = data['color']
+    
+    db.session.commit()
+    
+    return jsonify({'id': cls.id, 'name': cls.name, 'color': cls.color})
+
+def delete_class(project_id, class_id):
+    """Delete a class and all its annotations"""
+    cls = Class.query.filter_by(id=class_id, project_id=project_id).first_or_404()
+    
+    # Delete all annotations with this class
+    Annotation.query.filter_by(class_id=class_id).delete()
+    
+    db.session.delete(cls)
+    db.session.commit()
+    
+    return jsonify({'message': 'Class deleted successfully'})
+
+def create_dataset_version(project_id):
+    """Create a new dataset version with train/val/test split"""
+    project = Project.query.get_or_404(project_id)
+    data = request.json
+    
+    # Get all annotated images
+    annotated_images = [img for img in project.images if img.annotations]
+    
+    if len(annotated_images) == 0:
+        return jsonify({'error': 'No annotated images available'}), 400
+    
+    # Get split percentages
+    train_split = data.get('train_split', 0.7)
+    val_split = data.get('val_split', 0.2)
+    test_split = data.get('test_split', 0.1)
+    
+    # Validate splits
+    if abs(train_split + val_split + test_split - 1.0) > 0.01:
+        return jsonify({'error': 'Splits must sum to 1.0'}), 400
+    
+    # Shuffle and split images
+    import random
+    random.shuffle(annotated_images)
+    
+    total = len(annotated_images)
+    train_count = int(total * train_split)
+    val_count = int(total * val_split)
+    
+    train_images = [img.id for img in annotated_images[:train_count]]
+    val_images = [img.id for img in annotated_images[train_count:train_count + val_count]]
+    test_images = [img.id for img in annotated_images[train_count + val_count:]]
+    
+    # Create version
+    version = DatasetVersion(
+        project_id=project_id,
+        name=data.get('name', f'Version {len(project.dataset_versions) + 1}'),
+        description=data.get('description', ''),
+        train_split=train_split,
+        val_split=val_split,
+        test_split=test_split,
+        image_splits=json.dumps({
+            'train': train_images,
+            'val': val_images,
+            'test': test_images
+        }),
+        total_images=total,
+        total_annotations=sum(len(img.annotations) for img in annotated_images)
+    )
+    
+    db.session.add(version)
+    db.session.commit()
+    
+    return jsonify({
+        'id': version.id,
+        'name': version.name,
+        'train_count': len(train_images),
+        'val_count': len(val_images),
+        'test_count': len(test_images),
+        'message': 'Dataset version created successfully'
+    }), 201
+
+def get_dataset_versions(project_id):
+    """Get all dataset versions for a project"""
+    project = Project.query.get_or_404(project_id)
+    
+    versions = DatasetVersion.query.filter_by(project_id=project_id).order_by(DatasetVersion.created_at.desc()).all()
+    
+    return jsonify([{
+        'id': v.id,
+        'name': v.name,
+        'description': v.description,
+        'train_split': v.train_split,
+        'val_split': v.val_split,
+        'test_split': v.test_split,
+        'total_images': v.total_images,
+        'total_annotations': v.total_annotations,
+        'created_at': v.created_at.isoformat(),
+        'train_count': len(json.loads(v.image_splits)['train']),
+        'val_count': len(json.loads(v.image_splits)['val']),
+        'test_count': len(json.loads(v.image_splits)['test'])
+    } for v in versions])
+
+def delete_dataset_version(project_id, version_id):
+    """Delete a dataset version"""
+    version = DatasetVersion.query.filter_by(id=version_id, project_id=project_id).first_or_404()
+    
+    # Check if any training jobs use this version
+    if version.training_jobs:
+        return jsonify({'error': 'Cannot delete version with associated training jobs'}), 400
+    
+    db.session.delete(version)
+    db.session.commit()
+    
+    return jsonify({'message': 'Dataset version deleted successfully'})
+
+def start_training(project_id):
+    """Start YOLO model training"""
+    from training import train_yolo_model
+    
+    project = Project.query.get_or_404(project_id)
+    data = request.json
+    
+    # Create training job
+    job = TrainingJob(
+        project_id=project_id,
+        dataset_version_id=data.get('dataset_version_id'),
+        epochs=data.get('epochs', 100),
+        batch_size=data.get('batch_size', 16),
+        image_size=data.get('image_size', 640),
+        status='pending'
+    )
+    db.session.add(job)
+    db.session.commit()
+    
+    # Start training in background thread
+    thread = threading.Thread(
+        target=train_yolo_model,
+        args=(job.id, _socketio_instance)
+    )
+    thread.daemon = True
+    thread.start()
+    
+    return jsonify({
+        'job_id': job.id,
+        'message': 'Training started'
+    }), 201
+
+def get_training_job(job_id):
+    """Get training job status"""
+    job = TrainingJob.query.get_or_404(job_id)
+    
+    return jsonify({
+        'id': job.id,
+        'project_id': job.project_id,
+        'status': job.status,
+        'epochs': job.epochs,
+        'batch_size': job.batch_size,
+        'image_size': job.image_size,
+        'metrics': json.loads(job.metrics) if job.metrics else None,
+        'started_at': job.started_at.isoformat() if job.started_at else None,
+        'completed_at': job.completed_at.isoformat() if job.completed_at else None
+    })
+
+def predict_annotations(project_id):
+    """Use trained model to predict annotations (Label Assist)"""
+    project = Project.query.get_or_404(project_id)
+    data = request.json
+    image_id = data.get('image_id')
+    
+    # Get the latest successful training job
+    job = TrainingJob.query.filter_by(
+        project_id=project_id,
+        status='completed'
+    ).order_by(TrainingJob.completed_at.desc()).first()
+    
+    if not job or not job.model_path:
+        return jsonify({'error': 'No trained model available'}), 400
+    
+    image = Image.query.get_or_404(image_id)
+    
+    # Load model and predict
+    from ultralytics import YOLO
+    model = YOLO(job.model_path)
+    
+    results = model.predict(image.filepath, conf=data.get('confidence', 0.5))
+    
+    predictions = []
+    if len(results) > 0:
+        result = results[0]
+        boxes = result.boxes
+        
+        for box in boxes:
+            # Convert to normalized coordinates
+            x1, y1, x2, y2 = box.xyxy[0].tolist()
+            x_center = ((x1 + x2) / 2) / image.width
+            y_center = ((y1 + y2) / 2) / image.height
+            width = (x2 - x1) / image.width
+            height = (y2 - y1) / image.height
+            
+            cls_id = int(box.cls[0])
+            confidence = float(box.conf[0])
+            
+            predictions.append({
+                'class_id': project.classes[cls_id].id,
+                'x_center': x_center,
+                'y_center': y_center,
+                'width': width,
+                'height': height,
+                'confidence': confidence
+            })
+    
+    return jsonify({'predictions': predictions})
+
+def get_external_models(project_id):
+    """Get list of external models available in output_models folder"""
+    project = Project.query.get_or_404(project_id)
+    
+    external_models_path = 'output_models'
+    models = []
+    
+    if os.path.exists(external_models_path):
+        for model_dir in os.listdir(external_models_path):
+            model_path = os.path.join(external_models_path, model_dir)
+            if os.path.isdir(model_path):
+                # Look for .pt files in this directory
+                pt_files = []
+                for root, dirs, files in os.walk(model_path):
+                    for file in files:
+                        if file.endswith('.pt'):
+                            full_path = os.path.join(root, file)
+                            
+                            # Try to get model classes
+                            model_classes = []
+                            try:
+                                from ultralytics import YOLO
+                                model = YOLO(full_path)
+                                if hasattr(model, 'names') and model.names:
+                                    model_classes = [{'id': k, 'name': v} for k, v in model.names.items()]
+                            except:
+                                pass
+                            
+                            pt_files.append({
+                                'name': file,
+                                'path': full_path,
+                                'rel_path': os.path.relpath(full_path, external_models_path),
+                                'classes': model_classes
+                            })
+                
+                if pt_files:
+                    models.append({
+                        'model_dir': model_dir,
+                        'models': pt_files
+                    })
+    
+    return jsonify({'models': models})
+
+def use_external_model(project_id):
+    """Use an external model for predictions with class mapping"""
+    project = Project.query.get_or_404(project_id)
+    data = request.json
+    
+    model_path = data.get('model_path')
+    image_id = data.get('image_id')
+    confidence = data.get('confidence', 0.5)
+    class_mapping = data.get('class_mapping', {})  # Maps model class ID to project class ID
+    
+    if not model_path or not os.path.exists(model_path):
+        return jsonify({'error': 'Model not found'}), 404
+    
+    image = Image.query.get_or_404(image_id)
+    
+    try:
+        # Load external model and predict
+        from ultralytics import YOLO
+        model = YOLO(model_path)
+        
+        results = model.predict(image.filepath, conf=confidence)
+        
+        predictions = []
+        if len(results) > 0:
+            result = results[0]
+            boxes = result.boxes
+            
+            for box in boxes:
+                # Convert to normalized coordinates
+                x1, y1, x2, y2 = box.xyxy[0].tolist()
+                x_center = ((x1 + x2) / 2) / image.width
+                y_center = ((y1 + y2) / 2) / image.height
+                width = (x2 - x1) / image.width
+                height = (y2 - y1) / image.height
+                
+                model_cls_id = int(box.cls[0])
+                conf = float(box.conf[0])
+                
+                # Use class mapping if provided, otherwise use default mapping
+                if class_mapping and str(model_cls_id) in class_mapping:
+                    class_id = class_mapping[str(model_cls_id)]
+                elif model_cls_id < len(project.classes):
+                    class_id = project.classes[model_cls_id].id
+                else:
+                    class_id = project.classes[0].id if project.classes else None
+                
+                if class_id:
+                    predictions.append({
+                        'class_id': class_id,
+                        'x_center': x_center,
+                        'y_center': y_center,
+                        'width': width,
+                        'height': height,
+                        'confidence': conf
+                    })
+        
+        return jsonify({'predictions': predictions})
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+

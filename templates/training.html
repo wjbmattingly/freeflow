@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+
+{% block title %}Training - FreeFlow{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="project-header">
+        <div class="breadcrumb">
+            <a href="/">Projects</a> / <a href="/project/{{ project_id }}">Project</a> / Training
+        </div>
+    </div>
+
+    <div class="training-container">
+        <div class="training-config">
+            <h2>Train YOLO11 Model</h2>
+            <p style="color: var(--text-secondary); font-size: 0.875rem; margin-bottom: 1rem;">
+                Using latest YOLOv11 architecture for state-of-the-art object detection
+            </p>
+            
+            <div class="form-group">
+                <label>Dataset Version</label>
+                <select id="datasetVersionSelect" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--background); color: var(--text); cursor: pointer;">
+                    <option value="">Use all annotated images (auto-split)</option>
+                </select>
+                <p class="help-text">Select a specific dataset version or use auto-split (70/20/10)</p>
+            </div>
+            
+            <div class="form-group">
+                <label>Epochs</label>
+                <input type="number" id="epochs" value="100" min="1" max="1000">
+                <p class="help-text">Number of training iterations</p>
+            </div>
+
+            <div class="form-group">
+                <label>Batch Size</label>
+                <input type="number" id="batchSize" value="16" min="1" max="64">
+                <p class="help-text">Number of images per batch</p>
+            </div>
+
+            <div class="form-group">
+                <label>Image Size</label>
+                <select id="imageSize">
+                    <option value="416">416</option>
+                    <option value="640" selected>640</option>
+                    <option value="1280">1280</option>
+                </select>
+                <p class="help-text">Input image size for training</p>
+            </div>
+
+            <div class="dataset-info">
+                <h3>Dataset Info</h3>
+                <div class="info-row">
+                    <span>Total Images:</span>
+                    <span id="totalImages">0</span>
+                </div>
+                <div class="info-row">
+                    <span>Annotated Images:</span>
+                    <span id="annotatedImages">0</span>
+                </div>
+                <div class="info-row">
+                    <span>Classes:</span>
+                    <span id="classCount">0</span>
+                </div>
+            </div>
+
+            <button class="btn btn-primary btn-large" onclick="startTraining()" id="trainBtn">
+                Start Training
+            </button>
+        </div>
+
+        <div class="training-monitor">
+            <h2>Training Progress</h2>
+            
+            <div id="trainingStatus" class="training-status">
+                <p class="empty-state">No training in progress</p>
+            </div>
+
+            <div id="trainingCharts" style="display: none;">
+                <div class="metrics-grid" style="margin-bottom: 1.5rem;">
+                    <div class="metric-card">
+                        <h4>Current Epoch</h4>
+                        <p id="currentEpoch">0 / 0</p>
+                    </div>
+                    <div class="metric-card">
+                        <h4>Train Loss</h4>
+                        <p id="trainLoss">0.000</p>
+                    </div>
+                    <div class="metric-card">
+                        <h4>Val Loss</h4>
+                        <p id="valLoss">0.000</p>
+                    </div>
+                    <div class="metric-card">
+                        <h4>mAP@50</h4>
+                        <p id="map50">0.000</p>
+                    </div>
+                </div>
+
+                <div class="charts-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.5rem; margin-bottom: 1.5rem;">
+                    <div class="chart-container">
+                        <h3>Loss</h3>
+                        <canvas id="lossChart" style="max-height: 300px;"></canvas>
+                    </div>
+
+                    <div class="chart-container">
+                        <h3>mAP@50</h3>
+                        <canvas id="mapChart" style="max-height: 300px;"></canvas>
+                    </div>
+
+                    <div class="chart-container">
+                        <h3>Precision & Recall</h3>
+                        <canvas id="precisionRecallChart" style="max-height: 300px;"></canvas>
+                    </div>
+
+                    <div class="chart-container">
+                        <h3>Learning Rate</h3>
+                        <canvas id="lrChart" style="max-height: 300px;"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="training-history">
+        <h2>Training Jobs</h2>
+        <p style="color: var(--text-secondary); font-size: 0.875rem; margin-bottom: 1rem;">
+            Click on any job to view its progress. Multiple jobs can run simultaneously.
+        </p>
+        <div id="trainingHistory" class="history-list">
+            <!-- Training jobs will be loaded here -->
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+    const PROJECT_ID = {{ project_id }};
+</script>
+<script src="{{ url_for('static', filename='js/training.js') }}"></script>
+{% endblock %}
+
