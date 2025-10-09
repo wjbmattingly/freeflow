@@ -332,14 +332,26 @@ def save_annotations(image_id):
     return jsonify({'message': 'Annotations saved successfully'})
 
 def get_project_classes(project_id):
-    """Get all classes for a project"""
+    """Get all classes for a project with annotation counts"""
     project = Project.query.get_or_404(project_id)
     
-    return jsonify([{
-        'id': cls.id,
-        'name': cls.name,
-        'color': cls.color
-    } for cls in project.classes])
+    classes_data = []
+    for cls in project.classes:
+        # Count annotations for this class
+        annotation_count = Annotation.query.filter_by(class_id=cls.id).count()
+        
+        # Count unique images that have this class
+        images_with_class = db.session.query(Annotation.image_id).filter_by(class_id=cls.id).distinct().count()
+        
+        classes_data.append({
+            'id': cls.id,
+            'name': cls.name,
+            'color': cls.color,
+            'annotation_count': annotation_count,
+            'image_count': images_with_class
+        })
+    
+    return jsonify(classes_data)
 
 def add_class(project_id):
     """Add a new class to project"""

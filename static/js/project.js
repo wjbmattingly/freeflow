@@ -211,27 +211,43 @@ async function loadClasses() {
         classes = await apiCall(`/api/projects/${PROJECT_ID}/classes`);
         
         const classesListView = document.getElementById('classesListView');
-        classesListView.innerHTML = classes.map(cls => `
-            <div class="class-item" style="display: flex; align-items: center; padding: 1rem; background: var(--surface); border: 1px solid var(--border); border-radius: 0.5rem; margin-bottom: 0.75rem;">
-                <input type="color" class="class-color-input" value="${cls.color}" 
-                       onchange="updateClassColor(${cls.id}, this.value)" 
-                       style="width: 3rem; height: 3rem; border: none; border-radius: 0.375rem; cursor: pointer; margin-right: 1rem;">
-                <input type="text" class="class-name-input" value="${cls.name}" 
-                       onblur="updateClassName(${cls.id}, this.value)"
-                       style="flex: 1; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.375rem; margin-right: 1rem;">
-                <button class="btn btn-secondary" onclick="editClass(${cls.id}, '${cls.name}', '${cls.color}')" 
-                        style="margin-right: 0.5rem;">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                    </svg>
-                </button>
-                <button class="btn btn-secondary" onclick="deleteClass(${cls.id}, '${cls.name}')" 
-                        style="color: var(--error);">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                    </svg>
-                </button>
+        
+        if (classes.length === 0) {
+            classesListView.innerHTML = '<p class="empty-state">No classes yet. Add your first class!</p>';
+            return;
+        }
+        
+        classesListView.innerHTML = `
+            <div style="display: grid; grid-template-columns: 80px 1fr 120px; gap: 1rem; padding: 0.75rem 1rem; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: var(--text-secondary); border-bottom: 1px solid var(--border);">
+                <div>Color</div>
+                <div>Class Name</div>
+                <div style="text-align: right;">Count</div>
+            </div>
+        ` + classes.map(cls => `
+            <div class="class-item" style="display: grid; grid-template-columns: 80px 1fr 120px; gap: 1rem; align-items: center; padding: 1rem; background: var(--surface); border: 1px solid var(--border); border-top: none; transition: all 0.2s;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <div style="width: 1rem; height: 1rem; border-radius: 50%; background: ${cls.color};"></div>
+                    <input type="color" value="${cls.color}" 
+                           onchange="updateClassColor(${cls.id}, this.value)" 
+                           style="width: 2rem; height: 2rem; border: 1px solid var(--border); border-radius: 0.375rem; cursor: pointer;">
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span style="font-weight: 500; flex: 1;">${cls.name}</span>
+                    <button class="btn btn-secondary" onclick="editClass(${cls.id}, '${cls.name}', '${cls.color}')" 
+                            style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">
+                        Edit
+                    </button>
+                    <button class="btn btn-secondary" onclick="deleteClass(${cls.id}, '${cls.name}')" 
+                            style="padding: 0.25rem 0.5rem; font-size: 0.75rem; color: var(--error);">
+                        Delete
+                    </button>
+                </div>
+                <div style="text-align: right; font-weight: 600; color: var(--text);">
+                    ${cls.annotation_count || 0}
+                    <div style="font-size: 0.75rem; color: var(--text-secondary); font-weight: 400; margin-top: 0.25rem;">
+                        ${cls.image_count || 0} image${cls.image_count === 1 ? '' : 's'}
+                    </div>
+                </div>
             </div>
         `).join('');
         
