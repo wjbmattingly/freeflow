@@ -846,6 +846,11 @@ body {
     grid-template-columns: 400px 1fr;
     gap: 2rem;
     margin-bottom: 2rem;
+    transition: grid-template-columns 0.3s ease;
+}
+
+.training-container.monitor-only {
+    grid-template-columns: 1fr;
 }
 
 .training-config,

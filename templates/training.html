@@ -87,7 +87,12 @@
         </div>
 
         <div class="training-monitor">
-            <h2>Training Progress</h2>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <h2 style="margin: 0;">Training Progress</h2>
+                <button class="btn btn-secondary" onclick="showConfigPanel()" style="display: none;" id="newTrainingBtn">
+                    🎯 New Training
+                </button>
+            </div>
             
             <div id="trainingStatus" class="training-status">
                 <p class="empty-state">No training in progress</p>

@@ -57,6 +57,14 @@ async function loadProjectInfo() {
 }
 
 function setupSocketConnection() {
+    // Disconnect existing socket if present
+    if (socket) {
+        console.log('🔄 Reconnecting socket...');
+        socket.removeAllListeners();
+        socket.disconnect();
+    }
+    
+    // Create new socket connection
     socket = io();
     
     socket.on('connect', () => {
@@ -153,10 +161,17 @@ async function startTraining() {
         
         showToast('Training started! Job #' + result.job_id, 'success');
         
-        // Don't disable the button - allow multiple training jobs
+        // Hide training config panel and show monitor
+        const trainingContainer = document.querySelector('.training-container');
+        const trainingConfig = document.querySelector('.training-config');
+        trainingConfig.style.display = 'none';
+        trainingContainer.classList.add('monitor-only');
         document.getElementById('trainingCharts').style.display = 'block';
+        document.getElementById('newTrainingBtn').style.display = 'block';
         document.getElementById('trainingStatus').innerHTML = `<p>Preparing training for Job #${result.job_id}...</p>`;
         
+        // Reinitialize socket connection to ensure clean state
+        setupSocketConnection();
         initializeCharts();
         
         // Reload training history to show new job
@@ -205,12 +220,33 @@ function handleTrainingComplete(data) {
         `<div style="text-align: center;">
             <p style="color: var(--success); font-size: 1.25rem; font-weight: 600; margin-bottom: 0.5rem;">✅ Training Complete!</p>
             <p style="color: var(--text-secondary); margin-bottom: 1rem;">Model saved to: ${data.model_path || 'output_models'}</p>
-            <button class="btn btn-primary" onclick="location.href='/project/${PROJECT_ID}/model/${data.job_id}'" style="padding: 0.75rem 2rem; font-size: 1rem;">
-                📊 View Model Details
-            </button>
+            <div style="display: flex; gap: 1rem; justify-content: center;">
+                <button class="btn btn-secondary" onclick="showConfigPanel()" style="padding: 0.75rem 2rem; font-size: 1rem;">
+                    🎯 Train Another Model
+                </button>
+                <button class="btn btn-primary" onclick="location.href='/project/${PROJECT_ID}/model/${data.job_id}'" style="padding: 0.75rem 2rem; font-size: 1rem;">
+                    📊 View Model Details
+                </button>
+            </div>
         </div>`;
     
     activeJobIds.delete(data.job_id);
+    loadTrainingHistory();
+}
+
+function showConfigPanel() {
+    const trainingContainer = document.querySelector('.training-container');
+    const trainingConfig = document.querySelector('.training-config');
+    
+    trainingConfig.style.display = 'block';
+    trainingContainer.classList.remove('monitor-only');
+    document.getElementById('trainingCharts').style.display = 'none';
+    document.getElementById('newTrainingBtn').style.display = 'none';
+    currentJobId = null;
+    
+    // Clear the form
+    document.getElementById('modelName').value = '';
+    
     loadTrainingHistory();
 }
 
@@ -544,22 +580,31 @@ async function viewTrainingJob(jobId) {
     try {
         const job = await apiCall(`/api/training/${jobId}`);
         
-        // Update UI to show this job's info
+        // Show monitor panel, hide config panel
+        const trainingContainer = document.querySelector('.training-container');
+        const trainingConfig = document.querySelector('.training-config');
+        trainingConfig.style.display = 'none';
+        trainingContainer.classList.add('monitor-only');
         document.getElementById('trainingCharts').style.display = 'block';
-        document.getElementById('trainingStatus').innerHTML = `<p>Viewing Job #${jobId} - ${job.status}</p>`;
+        document.getElementById('newTrainingBtn').style.display = 'block';
+        
+        // Update UI to show this job's info
+        const statusText = job.status === 'completed' ? '✅ Completed' : 
+                          job.status === 'training' ? '⏳ Training' : 
+                          job.status === 'failed' ? '❌ Failed' : '⏸️ Pending';
+        document.getElementById('trainingStatus').innerHTML = `<p>Viewing Job #${jobId} (${job.name || 'Unnamed'}) - ${statusText}</p>`;
         
         // If job is completed or failed, load its metrics
-        if (job.metrics) {
-            const metrics = JSON.parse(job.metrics);
-            displayJobMetrics(metrics);
-        }
-        
-        // If job is still running, charts will update via socket
-        if (job.status === 'training' || job.status === 'pending') {
-            initializeCharts();
-            showToast('Now viewing live job #' + jobId, 'info');
-        } else {
+        if ((job.status === 'completed' || job.status === 'failed') && job.metrics) {
+            displayJobMetrics(job.metrics);
             showToast('Viewing completed job #' + jobId, 'info');
+        } 
+        // If job is still running, initialize fresh charts for live updates
+        else if (job.status === 'training' || job.status === 'pending') {
+            initializeCharts();
+            // Reconnect socket to ensure we receive updates for this job
+            setupSocketConnection();
+            showToast('Now viewing live job #' + jobId, 'info');
         }
         
         // Reload history to update active indicator
@@ -567,6 +612,7 @@ async function viewTrainingJob(jobId) {
         
     } catch (error) {
         showToast('Failed to load job details', 'error');
+        console.error('Error loading job:', error);
     }
 }
 
@@ -574,28 +620,47 @@ function displayJobMetrics(metrics) {
     // Reset charts
     initializeCharts();
     
-    // If we have epoch-by-epoch data
-    if (metrics.epochs) {
-        metrics.epochs.forEach(epoch => {
-            chartData.epochs.push(epoch.epoch);
-            chartData.trainLoss.push(epoch.train_loss);
-            chartData.valLoss.push(epoch.val_loss);
-            chartData.map50.push(epoch.map50 || 0);
-            chartData.precision.push(epoch.precision || 0);
-            chartData.recall.push(epoch.recall || 0);
-            chartData.lr.push(epoch.lr || 0.01);
+    // Parse metrics if it's a string
+    const metricsData = typeof metrics === 'string' ? JSON.parse(metrics) : metrics;
+    
+    // Check if we have epochs array with data
+    if (metricsData.epochs && Array.isArray(metricsData.epochs) && metricsData.epochs.length > 0) {
+        // Populate chartData arrays
+        metricsData.epochs.forEach((epoch, index) => {
+            chartData.epochs.push(index + 1);
         });
+        
+        // Map different metric formats
+        if (metricsData.train_loss && Array.isArray(metricsData.train_loss)) {
+            // Format: separate arrays for each metric
+            chartData.trainBoxLoss = [...metricsData.train_loss];
+            chartData.valBoxLoss = [...metricsData.val_loss];
+            chartData.map50 = [...metricsData.map50];
+            // Fill in zeros for losses we don't have
+            chartData.trainClsLoss = new Array(metricsData.train_loss.length).fill(0);
+            chartData.trainDflLoss = new Array(metricsData.train_loss.length).fill(0);
+            chartData.valClsLoss = new Array(metricsData.train_loss.length).fill(0);
+            chartData.valDflLoss = new Array(metricsData.train_loss.length).fill(0);
+            chartData.precision = new Array(metricsData.train_loss.length).fill(0);
+            chartData.recall = new Array(metricsData.train_loss.length).fill(0);
+            chartData.lr = new Array(metricsData.train_loss.length).fill(0.01);
+        }
         
         updateCharts();
         
-        // Update final metrics
-        const lastEpoch = metrics.epochs[metrics.epochs.length - 1];
-        if (lastEpoch) {
-            document.getElementById('currentEpoch').textContent = `${lastEpoch.epoch} / ${lastEpoch.epoch}`;
-            document.getElementById('trainLoss').textContent = lastEpoch.train_loss.toFixed(4);
-            document.getElementById('valLoss').textContent = lastEpoch.val_loss.toFixed(4);
-            document.getElementById('map50').textContent = (lastEpoch.map50 || 0).toFixed(4);
+        // Update metric cards with final values
+        const lastEpoch = chartData.epochs.length;
+        if (lastEpoch > 0) {
+            document.getElementById('currentEpoch').textContent = `${lastEpoch} / ${lastEpoch}`;
+            document.getElementById('trainBoxLoss').textContent = (chartData.trainBoxLoss[lastEpoch - 1] || 0).toFixed(4);
+            document.getElementById('trainClsLoss').textContent = (chartData.trainClsLoss[lastEpoch - 1] || 0).toFixed(4);
+            document.getElementById('trainDflLoss').textContent = (chartData.trainDflLoss[lastEpoch - 1] || 0).toFixed(4);
+            document.getElementById('valBoxLoss').textContent = (chartData.valBoxLoss[lastEpoch - 1] || 0).toFixed(4);
+            document.getElementById('valClsLoss').textContent = (chartData.valClsLoss[lastEpoch - 1] || 0).toFixed(4);
+            document.getElementById('map50').textContent = (chartData.map50[lastEpoch - 1] || 0).toFixed(4);
         }
+    } else {
+        showToast('No detailed metrics available for this training job', 'info');
     }
 }
 
