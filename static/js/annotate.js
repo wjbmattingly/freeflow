@@ -14,13 +14,13 @@ let customModels = [];
 let selectedExternalModel = null;
 let selectedModelInfo = null;
 let classMapping = {};
-let labelAssistEnabled = false;
+let labelAssistEnabled = true; // Default to enabled
 let labelAssistConfig = {
     modelPath: null,
     confidence: 0.5,
     clearExisting: true
 };
-let autoSaveEnabled = false;
+let autoSaveEnabled = true; // Default to enabled
 let annotations = [];
 let isDrawing = false;
 let startX, startY;
@@ -40,6 +40,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // Get filter from URL parameter
     const urlParams = new URLSearchParams(window.location.search);
     currentFilter = urlParams.get('filter') || 'all';
+    
+    // Initialize default button states for label assist (enabled by default)
+    const assistBtn = document.getElementById('assistBtn');
+    if (assistBtn && labelAssistEnabled) {
+        assistBtn.style.background = 'var(--primary-color)';
+        assistBtn.style.color = 'white';
+    }
     
     loadClasses();
     loadImages();
