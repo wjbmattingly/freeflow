@@ -224,25 +224,30 @@ function getCanvasCoordinates(e) {
 function handleMouseDown(e) {
     const { x, y } = getCanvasCoordinates(e);
     
-    // Check if clicking on a handle of selected annotation
-    if (selectedAnnotation) {
-        const handle = getHandleAtPosition(x, y, selectedAnnotation);
-        if (handle) {
-            isDragging = true;
-            dragHandle = handle;
-            startX = x;
-            startY = y;
+    // If holding Shift, always start drawing a new box (skip selection)
+    const forceDrawing = e.shiftKey;
+    
+    if (!forceDrawing) {
+        // Check if clicking on a handle of selected annotation
+        if (selectedAnnotation) {
+            const handle = getHandleAtPosition(x, y, selectedAnnotation);
+            if (handle) {
+                isDragging = true;
+                dragHandle = handle;
+                startX = x;
+                startY = y;
+                return;
+            }
+        }
+        
+        // Check if clicking on an existing annotation
+        const clicked = getAnnotationAtPosition(x, y);
+        if (clicked) {
+            selectedAnnotation = clicked;
+            drawCanvas();
+            renderAnnotationsList();
             return;
         }
-    }
-    
-    // Check if clicking on an existing annotation
-    const clicked = getAnnotationAtPosition(x, y);
-    if (clicked) {
-        selectedAnnotation = clicked;
-        drawCanvas();
-        renderAnnotationsList();
-        return;
     }
     
     // Otherwise, start drawing new box
