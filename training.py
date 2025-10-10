@@ -23,9 +23,13 @@ def train_yolo_model(job_id, socketio):
             return
         
         print(f"✅ Job found: #{job.id}")
+        print(f"   Name: {job.name}")
         print(f"   Project: {job.project.name}")
+        print(f"   Dataset Version ID: {job.dataset_version_id}")
         print(f"   Epochs: {job.epochs}")
         print(f"   Batch: {job.batch_size}")
+        print(f"   Image Size: {job.image_size}")
+        print(f"   Model Size: {job.model_size}")
         
         project = job.project
         
@@ -292,13 +296,29 @@ def prepare_yolo_dataset(project, job):
     
     # Get images based on dataset version or use all annotated
     if job.dataset_version_id:
+        print(f"📊 Using dataset version ID: {job.dataset_version_id}")
         version = DatasetVersion.query.get(job.dataset_version_id)
-        splits_data = json.loads(version.image_splits)
-        
-        train_images = [Image.query.get(img_id) for img_id in splits_data['train']]
-        val_images = [Image.query.get(img_id) for img_id in splits_data['val']]
-        test_images = [Image.query.get(img_id) for img_id in splits_data.get('test', [])]
+        if not version:
+            print(f"⚠️ WARNING: Dataset version {job.dataset_version_id} not found! Using all annotated images.")
+            # Fall back to all annotated images
+            annotated_images = [img for img in project.images if img.annotations]
+            train_idx = int(len(annotated_images) * 0.7)
+            val_idx = int(len(annotated_images) * 0.9)
+            
+            train_images = annotated_images[:train_idx]
+            val_images = annotated_images[train_idx:val_idx]
+            test_images = annotated_images[val_idx:]
+        else:
+            print(f"📊 Dataset version found: {version.name}")
+            splits_data = json.loads(version.image_splits)
+            
+            train_images = [Image.query.get(img_id) for img_id in splits_data['train'] if Image.query.get(img_id)]
+            val_images = [Image.query.get(img_id) for img_id in splits_data['val'] if Image.query.get(img_id)]
+            test_images = [Image.query.get(img_id) for img_id in splits_data.get('test', []) if Image.query.get(img_id)]
+            
+            print(f"   Split from version - Train: {len(train_images)}, Val: {len(val_images)}, Test: {len(test_images)}")
     else:
+        print(f"📊 No dataset version specified. Using all annotated images with 70/20/10 split.")
         # Default: use all annotated images with 70/20/10 split
         annotated_images = [img for img in project.images if img.annotations]
         train_idx = int(len(annotated_images) * 0.7)
@@ -307,6 +327,8 @@ def prepare_yolo_dataset(project, job):
         train_images = annotated_images[:train_idx]
         val_images = annotated_images[train_idx:val_idx]
         test_images = annotated_images[val_idx:]
+        
+        print(f"   Auto-split - Train: {len(train_images)}, Val: {len(val_images)}, Test: {len(test_images)}")
     
     # Process images for all splits
     for split, images in [('train', train_images), ('val', val_images), ('test', test_images)]:
@@ -338,6 +360,19 @@ def prepare_yolo_dataset(project, job):
     
     with open(os.path.join(dataset_path, 'data.yaml'), 'w') as f:
         yaml.dump(data_yaml, f)
+    
+    # Print final summary
+    print(f"\n{'='*60}")
+    print(f"📊 DATASET SUMMARY")
+    print(f"{'='*60}")
+    print(f"   Dataset Version ID: {job.dataset_version_id or 'None (auto-split)'}")
+    print(f"   Train images: {len(train_images)}")
+    print(f"   Validation images: {len(val_images)}")
+    print(f"   Test images: {len(test_images)}")
+    print(f"   Total images: {len(train_images) + len(val_images) + len(test_images)}")
+    print(f"   Classes: {len(project.classes)}")
+    print(f"   Dataset path: {dataset_path}")
+    print(f"{'='*60}\n")
     
     return dataset_path
 

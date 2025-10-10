@@ -122,6 +122,10 @@ async function loadDatasetVersions() {
                 
             versionSelect.addEventListener('change', (e) => {
                 selectedVersionId = e.target.value ? parseInt(e.target.value) : null;
+                console.log('📊 Dataset version changed:', { 
+                    value: e.target.value, 
+                    selectedVersionId 
+                });
             });
         }
     } catch (error) {
@@ -135,14 +139,32 @@ async function startTraining() {
     const epochs = parseInt(document.getElementById('epochs').value);
     const batchSize = parseInt(document.getElementById('batchSize').value);
     const imageSize = parseInt(document.getElementById('imageSize').value);
-    const datasetVersionId = selectedVersionId || document.getElementById('datasetVersionSelect')?.value || null;
+    
+    // Get dataset version ID - prioritize dropdown value over pre-selected version
+    const dropdownValue = document.getElementById('datasetVersionSelect')?.value;
+    let datasetVersionId = null;
+    
+    if (dropdownValue && dropdownValue !== '') {
+        datasetVersionId = parseInt(dropdownValue);
+    } else if (selectedVersionId) {
+        datasetVersionId = selectedVersionId;
+    }
     
     if (!modelName) {
         showToast('Please enter a model name', 'error');
         return;
     }
     
-    console.log('🚀 Starting training with config:', { modelName, modelSize, epochs, batchSize, imageSize, datasetVersionId });
+    console.log('🚀 Starting training with config:', { 
+        modelName, 
+        modelSize, 
+        epochs, 
+        batchSize, 
+        imageSize, 
+        datasetVersionId,
+        dropdownValue,
+        selectedVersionId
+    });
     
     try {
         const result = await apiCall(`/api/projects/${PROJECT_ID}/train`, {
@@ -153,7 +175,7 @@ async function startTraining() {
                 epochs,
                 batch_size: batchSize,
                 image_size: imageSize,
-                dataset_version_id: datasetVersionId ? parseInt(datasetVersionId) : null
+                dataset_version_id: datasetVersionId
             })
         });
         
