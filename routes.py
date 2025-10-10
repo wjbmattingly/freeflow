@@ -991,6 +991,29 @@ def delete_training_job(job_id):
     
     return jsonify({'message': 'Training job deleted successfully', 'cancelled': False})
 
+def stop_training_early(job_id):
+    """Request early stopping for a training job"""
+    job = TrainingJob.query.get_or_404(job_id)
+    
+    if job.status != 'training':
+        return jsonify({'error': 'Job is not currently training'}), 400
+    
+    # Set the early stopping flag
+    job.stop_early = True
+    db.session.commit()
+    
+    # Emit status update
+    if _socketio_instance:
+        _socketio_instance.emit('training_update', {
+            'job_id': job.id,
+            'message': 'Early stopping requested. Will finish current epoch and save model...'
+        })
+    
+    return jsonify({
+        'message': 'Early stopping requested',
+        'job_id': job.id
+    })
+
 def download_model(job_id):
     """Download trained model weights"""
     job = TrainingJob.query.get_or_404(job_id)

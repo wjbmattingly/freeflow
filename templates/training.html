@@ -97,6 +97,13 @@
             <div id="trainingStatus" class="training-status">
                 <p class="empty-state">No training in progress</p>
             </div>
+            
+            <div id="stopTrainingContainer" style="display: none; text-align: center; margin-bottom: 1.5rem;">
+                <button class="btn" id="stopTrainingBtn" onclick="stopTrainingEarly()" style="background: var(--error); color: white; padding: 0.75rem 2rem; font-size: 0.95rem;">
+                    ⏹️ Stop After Current Epoch
+                </button>
+                <p style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.5rem;">Training will finish the current epoch and save the model</p>
+            </div>
 
             <div id="trainingCharts" style="display: none;">
                 <div class="metrics-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">

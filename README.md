@@ -102,6 +102,7 @@ http://localhost:5000
 - **Ctrl+S**: Save annotations
 - **Ctrl+Z**: Undo
 - **Ctrl+Y**: Redo
+- **Shift+Select**: Drag an annotation over another annotation
 
 ## Project Structure
 
@@ -162,10 +163,6 @@ freeflow/
 - Data augmentation options
 - Polygon and segmentation annotation tools
 - Import from other annotation tools
-
-## License
-
-See LICENSE file for details.
 
 ## Support
 

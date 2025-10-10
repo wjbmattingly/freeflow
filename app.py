@@ -63,6 +63,7 @@ app.route('/api/projects/<int:project_id>/dataset-versions/<int:version_id>', me
 app.route('/api/projects/<int:project_id>/train', methods=['POST'])(routes.start_training)
 app.route('/api/training/<int:job_id>', methods=['GET'])(routes.get_training_job)
 app.route('/api/training/<int:job_id>', methods=['DELETE'])(routes.delete_training_job)
+app.route('/api/training/<int:job_id>/stop', methods=['POST'])(routes.stop_training_early)
 app.route('/api/training/<int:job_id>/download', methods=['GET'])(routes.download_model)
 app.route('/api/training/<int:job_id>/confusion-matrix', methods=['GET'])(routes.get_confusion_matrix)
 app.route('/api/training/<int:job_id>/confusion-matrix-normalized', methods=['GET'])(routes.get_confusion_matrix_normalized)

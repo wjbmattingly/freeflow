@@ -68,6 +68,19 @@ def train_yolo_model(job_id, socketio):
                 try:
                     epoch = trainer.epoch + 1
                     
+                    # Check for early stopping request
+                    with app.app_context():
+                        from models import TrainingJob
+                        current_job = TrainingJob.query.get(job.id)
+                        if current_job and current_job.stop_early:
+                            print(f"🛑 Early stopping requested at epoch {epoch}")
+                            socketio.emit('training_update', {
+                                'job_id': job.id,
+                                'message': f'Early stopping after epoch {epoch}. Saving model...'
+                            })
+                            trainer.stop = True  # Signal YOLO to stop training
+                            return
+                    
                     # Debug: print available metrics
                     if epoch == 1:
                         print(f"🔍 Available metrics: {list(trainer.metrics.keys())}")

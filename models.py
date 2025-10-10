@@ -96,6 +96,10 @@ class TrainingJob(db.Model):
     image_size = db.Column(db.Integer, default=640)
     model_path = db.Column(db.String(1000))
     
+    # Early stopping flag
+    stop_early = db.Column(db.Boolean, default=False)
+    error_message = db.Column(db.Text)
+    
     # Training metrics stored as JSON
     metrics = db.Column(db.Text)  # JSON string
     

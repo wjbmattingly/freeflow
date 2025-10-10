@@ -171,6 +171,7 @@ async function startTraining() {
         trainingContainer.classList.add('monitor-only');
         document.getElementById('trainingCharts').style.display = 'block';
         document.getElementById('newTrainingBtn').style.display = 'block';
+        document.getElementById('stopTrainingContainer').style.display = 'block';
         document.getElementById('trainingStatus').innerHTML = `<p>Preparing training for Job #${result.job_id}...</p>`;
         
         // Reinitialize socket connection to ensure clean state
@@ -222,6 +223,10 @@ function updateTrainingProgress(data) {
 
 function handleTrainingComplete(data) {
     showToast('Training job #' + data.job_id + ' completed!', 'success');
+    
+    // Hide stop button
+    document.getElementById('stopTrainingContainer').style.display = 'none';
+    
     document.getElementById('trainingStatus').innerHTML = 
         `<div style="text-align: center;">
             <p style="color: var(--success); font-size: 1.25rem; font-weight: 600; margin-bottom: 0.5rem;">✅ Training Complete!</p>
@@ -606,6 +611,19 @@ async function viewTrainingJob(jobId) {
                           job.status === 'failed' ? '❌ Failed' : '⏸️ Pending';
         document.getElementById('trainingStatus').innerHTML = `<p>Viewing Job #${jobId} (${job.name || 'Unnamed'}) - ${statusText}</p>`;
         
+        // Show/hide stop button based on job status
+        const stopContainer = document.getElementById('stopTrainingContainer');
+        if (job.status === 'training') {
+            stopContainer.style.display = 'block';
+            // Reset button state
+            const stopBtn = document.getElementById('stopTrainingBtn');
+            stopBtn.disabled = false;
+            stopBtn.textContent = '⏹️ Stop After Current Epoch';
+            stopBtn.style.opacity = '1';
+        } else {
+            stopContainer.style.display = 'none';
+        }
+        
         // If job is completed or failed, load its metrics
         if ((job.status === 'completed' || job.status === 'failed') && job.metrics) {
             displayJobMetrics(job.metrics);
@@ -698,6 +716,39 @@ function displayJobMetrics(metrics) {
         }
     } else {
         showToast('No detailed metrics available for this training job', 'info');
+    }
+}
+
+async function stopTrainingEarly() {
+    if (!currentJobId) {
+        showToast('No active training job', 'error');
+        return;
+    }
+    
+    if (!confirm('Stop training after the current epoch? The model will be saved with the progress so far.')) {
+        return;
+    }
+    
+    try {
+        const stopBtn = document.getElementById('stopTrainingBtn');
+        stopBtn.disabled = true;
+        stopBtn.textContent = '⏳ Stopping...';
+        stopBtn.style.opacity = '0.6';
+        
+        await apiCall(`/api/training/${currentJobId}/stop`, {
+            method: 'POST'
+        });
+        
+        showToast('Early stop requested. Training will finish current epoch...', 'info');
+        
+        // Button will be hidden when training completes
+    } catch (error) {
+        showToast(error.message || 'Failed to stop training', 'error');
+        // Re-enable button on error
+        const stopBtn = document.getElementById('stopTrainingBtn');
+        stopBtn.disabled = false;
+        stopBtn.textContent = '⏹️ Stop After Current Epoch';
+        stopBtn.style.opacity = '1';
     }
 }
 
