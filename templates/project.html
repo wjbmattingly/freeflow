@@ -214,21 +214,59 @@
             </div>
             <div class="form-group">
                 <label>Train/Validation/Test Split</label>
-                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin-top: 0.5rem;">
-                    <div>
-                        <label style="font-size: 0.875rem; color: var(--text-secondary);">Train %</label>
-                        <input type="number" id="trainSplit" value="70" min="0" max="100" step="1">
+                
+                <!-- Color Legend -->
+                <div style="display: flex; gap: 1rem; margin-top: 0.5rem; margin-bottom: 0.75rem; font-size: 0.875rem;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <div style="width: 16px; height: 16px; border-radius: 0.25rem; background: linear-gradient(135deg, #3B82F6, #2563EB);"></div>
+                        <span>Train</span>
                     </div>
-                    <div>
-                        <label style="font-size: 0.875rem; color: var(--text-secondary);">Validation %</label>
-                        <input type="number" id="valSplit" value="20" min="0" max="100" step="1">
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <div style="width: 16px; height: 16px; border-radius: 0.25rem; background: linear-gradient(135deg, #F59E0B, #D97706);"></div>
+                        <span>Validation</span>
                     </div>
-                    <div>
-                        <label style="font-size: 0.875rem; color: var(--text-secondary);">Test %</label>
-                        <input type="number" id="testSplit" value="10" min="0" max="100" step="1">
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <div style="width: 16px; height: 16px; border-radius: 0.25rem; background: linear-gradient(135deg, #8B5CF6, #7C3AED);"></div>
+                        <span>Test</span>
                     </div>
                 </div>
-                <p class="help-text" id="splitTotal">Total: 100%</p>
+                
+                <!-- Visual Split Slider -->
+                <div style="margin-bottom: 0.5rem;">
+                    <div id="splitSliderContainer" style="position: relative; height: 60px; background: var(--hover); border-radius: 0.5rem; overflow: hidden; cursor: pointer;">
+                        <!-- Train section -->
+                        <div id="trainSection" style="position: absolute; left: 0; top: 0; bottom: 0; width: 70%; background: linear-gradient(135deg, #3B82F6, #2563EB); display: flex; align-items: center; justify-content: center; color: white; font-weight: 600; transition: width 0.1s;">
+                            <div style="text-align: center;">
+                                <div id="trainPercent">70%</div>
+                                <div id="trainCount" style="font-size: 0.75rem; opacity: 0.9;">0 images</div>
+                            </div>
+                        </div>
+                        <!-- Val section -->
+                        <div id="valSection" style="position: absolute; left: 70%; top: 0; bottom: 0; width: 20%; background: linear-gradient(135deg, #F59E0B, #D97706); display: flex; align-items: center; justify-content: center; color: white; font-weight: 600; transition: width 0.1s, left 0.1s;">
+                            <div style="text-align: center;">
+                                <div id="valPercent">20%</div>
+                                <div id="valCount" style="font-size: 0.75rem; opacity: 0.9;">0 images</div>
+                            </div>
+                        </div>
+                        <!-- Test section -->
+                        <div id="testSection" style="position: absolute; left: 90%; top: 0; bottom: 0; width: 10%; background: linear-gradient(135deg, #8B5CF6, #7C3AED); display: flex; align-items: center; justify-content: center; color: white; font-weight: 600; transition: width 0.1s, left 0.1s;">
+                            <div style="text-align: center;">
+                                <div id="testPercent">10%</div>
+                                <div id="testCount" style="font-size: 0.75rem; opacity: 0.9;">0 images</div>
+                            </div>
+                        </div>
+                        <!-- Draggable dividers -->
+                        <div id="divider1" class="split-divider" style="position: absolute; left: 70%; top: 0; bottom: 0; width: 4px; background: white; cursor: ew-resize; z-index: 10; box-shadow: 0 0 8px rgba(0,0,0,0.3);"></div>
+                        <div id="divider2" class="split-divider" style="position: absolute; left: 90%; top: 0; bottom: 0; width: 4px; background: white; cursor: ew-resize; z-index: 10; box-shadow: 0 0 8px rgba(0,0,0,0.3);"></div>
+                    </div>
+                    
+                    <!-- Hidden inputs to store actual values -->
+                    <input type="hidden" id="trainSplit" value="70">
+                    <input type="hidden" id="valSplit" value="20">
+                    <input type="hidden" id="testSplit" value="10">
+                </div>
+                
+                <p class="help-text">Drag the dividers to adjust splits</p>
             </div>
             <div class="form-group">
                 <label>Random Seed (optional)</label>

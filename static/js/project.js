@@ -499,34 +499,129 @@ async function loadDatasetVersions() {
 function setupDatasetSplitListeners() {
     // Wait for DOM to be ready
     setTimeout(() => {
-        const trainInput = document.getElementById('trainSplit');
-        const valInput = document.getElementById('valSplit');
-        const testInput = document.getElementById('testSplit');
+        let isDragging = false;
+        let activeDivider = null;
         
-        if (trainInput && valInput && testInput) {
-            const updatePreview = () => {
-                const train = parseInt(trainInput.value) || 0;
-                const val = parseInt(valInput.value) || 0;
-                const test = parseInt(testInput.value) || 0;
-                const total = train + val + test;
-                
-                document.getElementById('splitTotal').textContent = `Total: ${total}%`;
-                document.getElementById('splitTotal').style.color = total === 100 ? 'var(--success)' : 'var(--error)';
-                
-                // Get annotated count from the sub-tabs
-                const annotated = parseInt(document.getElementById('annotatedCount')?.textContent) || 0;
-                document.getElementById('previewAnnotated').textContent = annotated;
-                document.getElementById('previewTrain').textContent = Math.floor(annotated * train / 100);
-                document.getElementById('previewVal').textContent = Math.floor(annotated * val / 100);
-                document.getElementById('previewTest').textContent = Math.floor(annotated * test / 100);
-            };
+        const container = document.getElementById('splitSliderContainer');
+        const divider1 = document.getElementById('divider1');
+        const divider2 = document.getElementById('divider2');
+        const trainSection = document.getElementById('trainSection');
+        const valSection = document.getElementById('valSection');
+        const testSection = document.getElementById('testSection');
+        
+        if (!container || !divider1 || !divider2) return;
+        
+        const updateSplitDisplay = () => {
+            const annotated = parseInt(document.getElementById('annotatedCount')?.textContent) || 0;
+            const train = parseInt(document.getElementById('trainSplit').value);
+            const val = parseInt(document.getElementById('valSplit').value);
+            const test = parseInt(document.getElementById('testSplit').value);
             
-            trainInput.addEventListener('input', updatePreview);
-            valInput.addEventListener('input', updatePreview);
-            testInput.addEventListener('input', updatePreview);
+            // Update percentages
+            document.getElementById('trainPercent').textContent = `${train}%`;
+            document.getElementById('valPercent').textContent = `${val}%`;
+            document.getElementById('testPercent').textContent = `${test}%`;
             
-            updatePreview();
-        }
+            // Update image counts
+            document.getElementById('trainCount').textContent = `${Math.floor(annotated * train / 100)} images`;
+            document.getElementById('valCount').textContent = `${Math.floor(annotated * val / 100)} images`;
+            document.getElementById('testCount').textContent = `${Math.floor(annotated * test / 100)} images`;
+            
+            // Update preview
+            document.getElementById('previewAnnotated').textContent = annotated;
+            document.getElementById('previewTrain').textContent = Math.floor(annotated * train / 100);
+            document.getElementById('previewVal').textContent = Math.floor(annotated * val / 100);
+            document.getElementById('previewTest').textContent = Math.floor(annotated * test / 100);
+            
+            // Update visual sections
+            const trainPercent = train;
+            const valPercent = val;
+            
+            trainSection.style.width = `${trainPercent}%`;
+            valSection.style.left = `${trainPercent}%`;
+            valSection.style.width = `${valPercent}%`;
+            testSection.style.left = `${trainPercent + valPercent}%`;
+            testSection.style.width = `${test}%`;
+            
+            divider1.style.left = `${trainPercent}%`;
+            divider2.style.left = `${trainPercent + valPercent}%`;
+        };
+        
+        const handleMouseDown = (e, dividerNum) => {
+            isDragging = true;
+            activeDivider = dividerNum;
+            e.preventDefault();
+            document.body.style.cursor = 'ew-resize';
+        };
+        
+        const handleMouseMove = (e) => {
+            if (!isDragging) return;
+            
+            const rect = container.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const percent = Math.max(5, Math.min(95, (x / rect.width) * 100)); // Keep between 5% and 95%
+            
+            if (activeDivider === 1) {
+                // Moving train/val divider
+                const train = Math.round(percent);
+                const currentVal = parseInt(document.getElementById('valSplit').value);
+                const currentTest = parseInt(document.getElementById('testSplit').value);
+                
+                // Ensure train is reasonable (at least 10%)
+                if (train < 10 || train > 90) return;
+                
+                // Adjust val and test to keep total at 100
+                const remaining = 100 - train;
+                let newVal = Math.min(currentVal, remaining - 5); // Leave at least 5% for test
+                let newTest = remaining - newVal;
+                
+                // Ensure test is at least 5%
+                if (newTest < 5) {
+                    newTest = 5;
+                    newVal = remaining - newTest;
+                }
+                
+                document.getElementById('trainSplit').value = train;
+                document.getElementById('valSplit').value = Math.round(newVal);
+                document.getElementById('testSplit').value = Math.round(newTest);
+            } else if (activeDivider === 2) {
+                // Moving val/test divider
+                const train = parseInt(document.getElementById('trainSplit').value);
+                const valTest = Math.round(percent) - train;
+                
+                // Ensure we have reasonable splits
+                if (valTest < 5 || valTest > (100 - train - 5)) return;
+                
+                const test = 100 - train - valTest;
+                
+                document.getElementById('valSplit').value = Math.round(valTest);
+                document.getElementById('testSplit').value = Math.round(test);
+            }
+            
+            updateSplitDisplay();
+        };
+        
+        const handleMouseUp = () => {
+            isDragging = false;
+            activeDivider = null;
+            document.body.style.cursor = '';
+        };
+        
+        divider1.addEventListener('mousedown', (e) => handleMouseDown(e, 1));
+        divider2.addEventListener('mousedown', (e) => handleMouseDown(e, 2));
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('mouseup', handleMouseUp);
+        
+        // Initial update
+        updateSplitDisplay();
+        
+        // Update when modal is shown (to get annotated count)
+        const observer = new MutationObserver(() => {
+            if (document.getElementById('createDatasetModal').classList.contains('active')) {
+                updateSplitDisplay();
+            }
+        });
+        observer.observe(document.getElementById('createDatasetModal'), { attributes: true });
     }, 100);
 }
 
