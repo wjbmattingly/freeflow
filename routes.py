@@ -819,8 +819,11 @@ def create_dataset_version(project_id):
     if abs(train_split + val_split + test_split - 1.0) > 0.01:
         return jsonify({'error': 'Splits must sum to 1.0'}), 400
     
-    # Shuffle and split images
+    # Shuffle and split images with optional seed for reproducibility
     import random
+    seed = data.get('seed')
+    if seed is not None:
+        random.seed(seed)
     random.shuffle(annotated_images)
     
     total = len(annotated_images)
@@ -839,6 +842,7 @@ def create_dataset_version(project_id):
         train_split=train_split,
         val_split=val_split,
         test_split=test_split,
+        seed=seed,
         image_splits=json.dumps({
             'train': train_images,
             'val': val_images,
@@ -873,6 +877,7 @@ def get_dataset_versions(project_id):
         'train_split': v.train_split,
         'val_split': v.val_split,
         'test_split': v.test_split,
+        'seed': v.seed,
         'total_images': v.total_images,
         'total_annotations': v.total_annotations,
         'created_at': v.created_at.isoformat(),

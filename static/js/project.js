@@ -470,7 +470,7 @@ async function loadDatasetVersions() {
                         </div>
                         
                         <div style="font-size: 0.875rem; color: var(--text-secondary);">
-                            Total: ${v.total_images} images • ${v.total_annotations} annotations • Created ${formatDate(v.created_at)}
+                            Total: ${v.total_images} images • ${v.total_annotations} annotations${v.seed !== null ? ` • Seed: ${v.seed}` : ''} • Created ${formatDate(v.created_at)}
                         </div>
                     </div>
                     
@@ -539,12 +539,21 @@ function closeCreateDatasetModal() {
     document.getElementById('createDatasetModal').classList.remove('active');
 }
 
+function generateRandomSeed() {
+    // Generate a random integer between 0 and 999999
+    const seed = Math.floor(Math.random() * 1000000);
+    document.getElementById('randomSeed').value = seed;
+    showToast(`Random seed generated: ${seed}`, 'info');
+}
+
 async function createDatasetVersion() {
     const name = document.getElementById('datasetVersionName').value.trim();
     const description = document.getElementById('datasetVersionDescription').value.trim();
     const train = parseInt(document.getElementById('trainSplit').value) / 100;
     const val = parseInt(document.getElementById('valSplit').value) / 100;
     const test = parseInt(document.getElementById('testSplit').value) / 100;
+    const seedValue = document.getElementById('randomSeed').value.trim();
+    const seed = seedValue ? parseInt(seedValue) : null;
     
     if (!name) {
         showToast('Please enter a version name', 'error');
@@ -557,15 +566,22 @@ async function createDatasetVersion() {
     }
     
     try {
+        const payload = {
+            name,
+            description,
+            train_split: train,
+            val_split: val,
+            test_split: test
+        };
+        
+        // Only include seed if it's set
+        if (seed !== null) {
+            payload.seed = seed;
+        }
+        
         await apiCall(`/api/projects/${PROJECT_ID}/dataset-versions`, {
             method: 'POST',
-            body: JSON.stringify({
-                name,
-                description,
-                train_split: train,
-                val_split: val,
-                test_split: test
-            })
+            body: JSON.stringify(payload)
         });
         
         showToast('Dataset version created successfully!', 'success');
@@ -575,6 +591,7 @@ async function createDatasetVersion() {
         // Clear form
         document.getElementById('datasetVersionName').value = '';
         document.getElementById('datasetVersionDescription').value = '';
+        document.getElementById('randomSeed').value = '';
         
     } catch (error) {
         showToast('Failed to create dataset version', 'error');

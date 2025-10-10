@@ -68,6 +68,9 @@ class DatasetVersion(db.Model):
     val_split = db.Column(db.Float, default=0.2)    # 20%
     test_split = db.Column(db.Float, default=0.1)   # 10%
     
+    # Random seed for reproducible splits
+    seed = db.Column(db.Integer)
+    
     # Image assignments stored as JSON
     # {"train": [img_id1, img_id2, ...], "val": [...], "test": [...]}
     image_splits = db.Column(db.Text, nullable=False)
