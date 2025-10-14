@@ -641,14 +641,25 @@ def import_from_huggingface(project_id):
                 'message': f'Loading dataset {dataset_id}...'
             })
 
-        # Load dataset with streaming to handle large datasets efficiently
-        try:
-            # First try loading without streaming to get the dataset info
-            dataset = load_dataset(dataset_id, split=split, streaming=False)
-        except Exception as e:
-            # If that fails, try with streaming
-            print(f"Failed to load dataset normally, trying with streaming: {e}")
+        # Load dataset with appropriate strategy based on sample_size
+        if sample_size:
+            # Use streaming for efficient sampling of large datasets
+            print(f"📊 Loading dataset with streaming for sampling {sample_size} images")
             dataset = load_dataset(dataset_id, split=split, streaming=True)
+            # Shuffle for random sampling (seed for reproducibility if needed)
+            dataset = dataset.shuffle(seed=42, buffer_size=10000)
+            # Take only the required sample
+            dataset = dataset.take(sample_size)
+        else:
+            # Load full dataset
+            try:
+                # Try loading without streaming for better performance on smaller datasets
+                print(f"📊 Loading full dataset without streaming")
+                dataset = load_dataset(dataset_id, split=split, streaming=False)
+            except Exception as e:
+                # If that fails (e.g., dataset too large), fall back to streaming
+                print(f"Failed to load dataset normally, trying with streaming: {e}")
+                dataset = load_dataset(dataset_id, split=split, streaming=True)
 
         # Check if the image column exists
         if hasattr(dataset, 'column_names'):
@@ -692,17 +703,16 @@ def import_from_huggingface(project_id):
 
         # Determine total count for progress tracking
         if sample_size:
-            total_to_process = min(sample_size, len(dataset) if hasattr(dataset, '__len__') else sample_size)
+            # When sampling, we know we'll process exactly sample_size images
+            total_to_process = sample_size
         else:
+            # For full dataset, try to get the length if available
             total_to_process = len(dataset) if hasattr(dataset, '__len__') else None
 
         print(f"📊 Processing {total_to_process if total_to_process else 'all'} images from dataset")
 
         # Process images
         for idx, example in enumerate(dataset):
-            # Check if we've reached the sample size
-            if sample_size and idx >= sample_size:
-                break
 
             try:
                 # Get the image from the dataset
