@@ -937,6 +937,119 @@ async function importFromRoboflow() {
     }
 }
 
+// ==================== HUGGING FACE IMPORT ====================
+
+function showHuggingFaceImportModal() {
+    document.getElementById('huggingFaceImportModal').classList.add('active');
+}
+
+function closeHuggingFaceImportModal() {
+    const modal = document.getElementById('huggingFaceImportModal');
+    modal.classList.remove('active');
+
+    // Reset form
+    document.getElementById('hfDatasetId').value = '';
+    document.getElementById('hfSplit').value = 'train';
+    document.getElementById('hfImageColumn').value = 'image';
+    document.getElementById('hfSampleSize').value = '';
+    document.getElementById('hfImportProgress').style.display = 'none';
+    document.getElementById('hfProgressBar').style.width = '0%';
+}
+
+async function importFromHuggingFace() {
+    const datasetId = document.getElementById('hfDatasetId').value.trim();
+    const split = document.getElementById('hfSplit').value;
+    const imageColumn = document.getElementById('hfImageColumn').value.trim() || 'image';
+    const sampleSize = document.getElementById('hfSampleSize').value.trim();
+
+    // Validate inputs
+    if (!datasetId) {
+        showToast('Please enter a dataset ID', 'error');
+        return;
+    }
+
+    // Show progress
+    const progressDiv = document.getElementById('hfImportProgress');
+    const statusText = document.getElementById('hfImportStatus');
+    const progressBar = document.getElementById('hfProgressBar');
+    const importBtn = document.getElementById('hfImportBtn');
+
+    progressDiv.style.display = 'block';
+    statusText.textContent = 'Loading dataset from Hugging Face...';
+    progressBar.style.width = '10%';
+    importBtn.disabled = true;
+
+    // Set up socket listener for progress updates
+    if (socket) {
+        socket.on('hf_import_progress', (data) => {
+            if (data.project_id === PROJECT_ID) {
+                if (data.status === 'loading') {
+                    statusText.textContent = data.message;
+                    progressBar.style.width = '20%';
+                } else if (data.status === 'importing') {
+                    statusText.textContent = data.message;
+                    if (data.total) {
+                        const percent = Math.min(90, 20 + (data.current / data.total) * 70);
+                        progressBar.style.width = percent + '%';
+                    }
+                } else if (data.status === 'complete') {
+                    progressBar.style.width = '100%';
+                    statusText.textContent = data.message;
+                } else if (data.status === 'error') {
+                    showToast(data.message, 'error');
+                    progressDiv.style.display = 'none';
+                    importBtn.disabled = false;
+                }
+            }
+        });
+    }
+
+    try {
+        const payload = {
+            dataset_id: datasetId,
+            split: split,
+            image_column: imageColumn
+        };
+
+        // Add sample size if provided
+        if (sampleSize) {
+            payload.sample_size = parseInt(sampleSize);
+        }
+
+        const response = await apiCall(`/api/projects/${PROJECT_ID}/import-huggingface`, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+
+        progressBar.style.width = '100%';
+        statusText.textContent = 'Import complete!';
+
+        showToast(`Successfully imported ${response.images_count} images from ${datasetId}!`, 'success');
+
+        // Close modal and reload data
+        setTimeout(async () => {
+            closeHuggingFaceImportModal();
+            await loadImages();
+
+            // Clean up socket listener
+            if (socket) {
+                socket.off('hf_import_progress');
+            }
+        }, 1000);
+
+    } catch (error) {
+        console.error('Import failed:', error);
+        showToast(error.message || 'Failed to import dataset from Hugging Face', 'error');
+        progressDiv.style.display = 'none';
+        importBtn.disabled = false;
+
+        // Clean up socket listener
+        if (socket) {
+            socket.off('hf_import_progress');
+        }
+    }
+}
+
 // ==================== CLASS MANAGEMENT ====================
 
 function showAddClassModal() {
