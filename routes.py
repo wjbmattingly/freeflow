@@ -648,7 +648,8 @@ def import_from_huggingface(project_id):
             print(f"📊 Loading dataset with streaming for sampling {sample_size} images")
             dataset = load_dataset(dataset_id, split=split, streaming=True)
             # Shuffle for random sampling (seed for reproducibility if needed)
-            dataset = dataset.shuffle(seed=42, buffer_size=10000)
+            shuffle_buffer_size = int(os.environ.get("HF_SHUFFLE_BUFFER_SIZE", 1000))
+            dataset = dataset.shuffle(seed=42, buffer_size=shuffle_buffer_size)
             # Take only the required sample
             dataset = dataset.take(sample_size)
         else:
