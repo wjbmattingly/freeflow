@@ -1013,7 +1013,14 @@ async function importFromHuggingFace() {
 
         // Add sample size if provided
         if (sampleSize) {
-            payload.sample_size = parseInt(sampleSize);
+            const parsedSampleSize = parseInt(sampleSize, 10);
+            if (isNaN(parsedSampleSize)) {
+                showToast('Sample size must be a valid number', 'error');
+                progressDiv.style.display = 'none';
+                importBtn.disabled = false;
+                return;
+            }
+            payload.sample_size = parsedSampleSize;
         }
 
         const response = await apiCall(`/api/projects/${PROJECT_ID}/import-huggingface`, {

@@ -10,6 +10,7 @@ import json
 from datetime import datetime
 import uuid
 import threading
+import re
 
 # App and socketio will be injected by app.py
 _app_instance = None
@@ -678,7 +679,9 @@ def import_from_huggingface(project_id):
 
         # Check if it's an Image column by trying to access the first example
         try:
-            first_example = next(iter(dataset))
+            # Reuse first_example if already fetched (streaming datasets)
+            if 'first_example' not in locals():
+                first_example = next(iter(dataset))
             test_image = first_example[image_column]
             # Try to access it as a PIL Image
             if hasattr(test_image, 'save'):
@@ -719,7 +722,8 @@ def import_from_huggingface(project_id):
                 image = example[image_column]
 
                 # Generate unique filename
-                image_filename = f"hf_{dataset_id.replace('/', '_')}_{split}_{idx:06d}.jpg"
+                safe_dataset_id = re.sub(r'[^a-zA-Z0-9_-]', '_', dataset_id)
+                image_filename = f"hf_{safe_dataset_id}_{split}_{idx:06d}.jpg"
                 image_path = os.path.join(project_folder, f"{uuid.uuid4()}_{image_filename}")
 
                 # Save the image
