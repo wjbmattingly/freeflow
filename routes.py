@@ -10,6 +10,7 @@ import json
 from datetime import datetime
 import uuid
 import threading
+import re
 
 # App and socketio will be injected by app.py
 _app_instance = None
@@ -613,6 +614,230 @@ def import_from_roboflow(project_id):
         print(f"❌ Roboflow import failed: {e}")
         import traceback
         traceback.print_exc()
+        return jsonify({'error': f'Import failed: {str(e)}'}), 500
+
+def import_from_huggingface(project_id):
+    """Import images from Hugging Face dataset"""
+    project = Project.query.get_or_404(project_id)
+
+    data = request.json
+    dataset_id = data.get('dataset_id')  # e.g., "beans", "cifar10", "detection-datasets/coco"
+    split = data.get('split', 'train')
+    image_column = data.get('image_column', 'image')
+    sample_size = data.get('sample_size')  # Optional: limit number of images
+
+    if not dataset_id:
+        return jsonify({'error': 'Dataset ID is required'}), 400
+
+    try:
+        from datasets import load_dataset
+
+        print(f"🤗 Loading dataset: {dataset_id} (split: {split})")
+
+        # Emit initial status
+        if _socketio_instance:
+            _socketio_instance.emit('hf_import_progress', {
+                'project_id': project_id,
+                'status': 'loading',
+                'message': f'Loading dataset {dataset_id}...'
+            })
+
+        # Load dataset with appropriate strategy based on sample_size
+        if sample_size:
+            # Use streaming for efficient sampling of large datasets
+            print(f"📊 Loading dataset with streaming for sampling {sample_size} images")
+            dataset = load_dataset(dataset_id, split=split, streaming=True)
+            # Shuffle for random sampling (seed for reproducibility if needed)
+            shuffle_buffer_size = int(os.environ.get("HF_SHUFFLE_BUFFER_SIZE", 1000))
+            dataset = dataset.shuffle(seed=42, buffer_size=shuffle_buffer_size)
+            # Take only the required sample
+            dataset = dataset.take(sample_size)
+        else:
+            # Load full dataset
+            try:
+                # Try loading without streaming for better performance on smaller datasets
+                print(f"📊 Loading full dataset without streaming")
+                dataset = load_dataset(dataset_id, split=split, streaming=False)
+            except Exception as e:
+                # If that fails (e.g., dataset too large), fall back to streaming
+                print(f"Failed to load dataset normally, trying with streaming: {e}")
+                dataset = load_dataset(dataset_id, split=split, streaming=True)
+
+        # Check if the image column exists
+        if hasattr(dataset, 'column_names'):
+            columns = dataset.column_names
+        elif hasattr(dataset, 'features'):
+            columns = list(dataset.features.keys())
+        else:
+            # For streaming datasets, peek at the first example
+            first_example = next(iter(dataset))
+            columns = list(first_example.keys())
+
+        if image_column not in columns:
+            return jsonify({
+                'error': f'Column "{image_column}" not found in dataset. Available columns: {columns}'
+            }), 400
+
+        # Check if it's an Image column by trying to access the first example
+        try:
+            # Reuse first_example if already fetched (streaming datasets)
+            if 'first_example' not in locals():
+                first_example = next(iter(dataset))
+            test_image = first_example[image_column]
+            # Try to access it as a PIL Image
+            if hasattr(test_image, 'save'):
+                # It's likely a PIL Image
+                pass
+            else:
+                return jsonify({
+                    'error': f'Column "{image_column}" does not appear to contain images'
+                }), 400
+        except Exception as e:
+            return jsonify({
+                'error': f'Failed to validate image column: {str(e)}'
+            }), 400
+
+        # Prepare for import
+        batch_id = str(uuid.uuid4())
+        project_folder = os.path.join(current_app.config['UPLOAD_FOLDER'], str(project_id))
+        os.makedirs(project_folder, exist_ok=True)
+
+        uploaded_images = []
+        total_processed = 0
+
+        # Determine total count for progress tracking
+        if sample_size:
+            # When sampling, we know we'll process exactly sample_size images
+            total_to_process = sample_size
+        else:
+            # For full dataset, try to get the length if available
+            total_to_process = len(dataset) if hasattr(dataset, '__len__') else None
+
+        print(f"📊 Processing {total_to_process if total_to_process else 'all'} images from dataset")
+
+        # Process images
+        for idx, example in enumerate(dataset):
+
+            try:
+                # Get the image from the dataset
+                image = example[image_column]
+
+                # Generate unique filename
+                safe_dataset_id = re.sub(r'[^a-zA-Z0-9_-]', '_', dataset_id)
+                image_filename = f"hf_{safe_dataset_id}_{split}_{idx:06d}.jpg"
+                image_path = os.path.join(project_folder, f"{uuid.uuid4()}_{image_filename}")
+
+                # Save the image
+                if hasattr(image, 'save'):
+                    # It's a PIL Image
+                    image.save(image_path, 'JPEG', quality=90, optimize=True)
+                else:
+                    # Try to convert to PIL Image
+                    from PIL import Image as PILImage
+                    if isinstance(image, PILImage.Image):
+                        image.save(image_path, 'JPEG', quality=90, optimize=True)
+                    else:
+                        print(f"⚠️ Skipping image {idx}: unsupported format")
+                        continue
+
+                # Get image dimensions
+                if hasattr(image, 'size'):
+                    width, height = image.size
+                elif hasattr(image, 'width') and hasattr(image, 'height'):
+                    width, height = image.width, image.height
+                else:
+                    print(f"⚠️ Skipping image {idx}: cannot determine dimensions (missing .size or .width/.height)")
+                    continue
+
+                # Create database entry
+                db_image = Image(
+                    filename=f"{dataset_id}/{split}_{idx:06d}",
+                    filepath=image_path,
+                    width=width,
+                    height=height,
+                    batch_id=batch_id,
+                    project_id=project_id,
+                    status='unassigned'  # No annotations from HF dataset
+                )
+                db.session.add(db_image)
+
+                uploaded_images.append({
+                    'filename': image_filename,
+                    'width': width,
+                    'height': height
+                })
+
+                total_processed += 1
+
+                # Emit progress update every 10 images
+                if total_processed % 10 == 0:
+                    if _socketio_instance:
+                        progress_msg = f'Imported {total_processed}'
+                        if total_to_process:
+                            progress_msg += f'/{total_to_process}'
+                        progress_msg += ' images'
+
+                        _socketio_instance.emit('hf_import_progress', {
+                            'project_id': project_id,
+                            'status': 'importing',
+                            'current': total_processed,
+                            'total': total_to_process,
+                            'message': progress_msg
+                        })
+
+            except Exception as e:
+                print(f"⚠️ Failed to process image {idx}: {e}")
+                continue
+
+        # Update project timestamp
+        project.updated_at = datetime.utcnow()
+
+        # Set first uploaded image as project thumbnail if no thumbnail exists
+        if not project.thumbnail_image_id and not project.thumbnail_path and uploaded_images:
+            first_image = Image.query.filter_by(
+                project_id=project_id,
+                batch_id=batch_id
+            ).order_by(Image.uploaded_at).first()
+            if first_image:
+                project.thumbnail_image_id = first_image.id
+
+        db.session.commit()
+
+        # Emit completion
+        if _socketio_instance:
+            _socketio_instance.emit('hf_import_progress', {
+                'project_id': project_id,
+                'status': 'complete',
+                'current': total_processed,
+                'total': total_processed,
+                'message': f'Successfully imported {total_processed} images'
+            })
+
+        print(f"✅ Import complete: {total_processed} images from {dataset_id}")
+
+        return jsonify({
+            'message': f'Successfully imported {total_processed} images from {dataset_id}',
+            'images_count': total_processed,
+            'batch_id': batch_id
+        })
+
+    except ImportError:
+        return jsonify({
+            'error': 'Hugging Face datasets library is not installed. Please install it with: pip install datasets'
+        }), 500
+    except Exception as e:
+        print(f"❌ Hugging Face import failed: {e}")
+        import traceback
+        traceback.print_exc()
+
+        # Emit error
+        if _socketio_instance:
+            _socketio_instance.emit('hf_import_progress', {
+                'project_id': project_id,
+                'status': 'error',
+                'message': f'Import failed: {str(e)}'
+            })
+
         return jsonify({'error': f'Import failed: {str(e)}'}), 500
 
 def delete_project_images(project_id):

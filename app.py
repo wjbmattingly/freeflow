@@ -48,6 +48,7 @@ app.route('/api/projects/<int:project_id>/thumbnail', methods=['GET'])(routes.ge
 app.route('/api/projects/<int:project_id>/thumbnail', methods=['POST'])(routes.upload_project_thumbnail)
 app.route('/api/projects/<int:project_id>/upload', methods=['POST'])(routes.upload_images)
 app.route('/api/projects/<int:project_id>/import-roboflow', methods=['POST'])(routes.import_from_roboflow)
+app.route('/api/projects/<int:project_id>/import-huggingface', methods=['POST'])(routes.import_from_huggingface)
 app.route('/api/projects/<int:project_id>/images', methods=['GET'])(routes.get_project_images)
 app.route('/api/projects/<int:project_id>/images/delete', methods=['POST'])(routes.delete_project_images)
 app.route('/api/images/<int:image_id>', methods=['GET'])(routes.get_image)
