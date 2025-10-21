@@ -741,7 +741,13 @@ def import_from_huggingface(project_id):
                         continue
 
                 # Get image dimensions
-                width, height = image.size if hasattr(image, 'size') else (image.width, image.height)
+                if hasattr(image, 'size'):
+                    width, height = image.size
+                elif hasattr(image, 'width') and hasattr(image, 'height'):
+                    width, height = image.width, image.height
+                else:
+                    print(f"⚠️ Skipping image {idx}: cannot determine dimensions (missing .size or .width/.height)")
+                    continue
 
                 # Create database entry
                 db_image = Image(
