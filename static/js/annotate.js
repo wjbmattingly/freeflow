@@ -6,6 +6,7 @@ let allImages = [];
 let currentFilter = 'all'; // 'all', 'annotated', 'unannotated'
 let currentImageIndex = 0;
 let currentImage = null;
+let currentImageData = null; // Store image data (id, filename, etc)
 let classes = [];
 let selectedClassId = null;
 let externalModels = [];
@@ -139,11 +140,27 @@ async function loadImage(index) {
     
     currentImageIndex = index;
     const imageData = images[index];
+    currentImageData = imageData; // Store the image data object
     
     try {
         // Load image annotations
         const data = await apiCall(`/api/images/${imageData.id}/annotations`);
         annotations = data.annotations;
+        
+        // Parse polygon data if present
+        annotations.forEach(ann => {
+            if (ann.polygon_points) {
+                try {
+                    ann.polygon = JSON.parse(ann.polygon_points);
+                    ann.has_polygon = true;
+                } catch (e) {
+                    console.error('Failed to parse polygon data:', e);
+                    ann.has_polygon = false;
+                }
+            } else {
+                ann.has_polygon = false;
+            }
+        });
         
         // Load the image
         const img = document.getElementById('imageElement');
@@ -224,6 +241,45 @@ function getCanvasCoordinates(e) {
 function handleMouseDown(e) {
     const { x, y } = getCanvasCoordinates(e);
     
+    // SAM2 Hover Mode: Click to save preview polygon
+    if (sam2Enabled && sam2Mode === 'hover' && sam2PreviewPolygon && sam2PreviewPolygon.length >= 3) {
+        if (!selectedClassId) {
+            showToast('Please select a class first', 'warning');
+            return;
+        }
+        
+        // Create annotation from preview polygon
+        const annotation = {
+            id: Date.now(),
+            class_id: selectedClassId,
+            class_name: classes.find(c => c.id === selectedClassId).name,
+            x_center: 0.5,  // Placeholder values
+            y_center: 0.5,
+            width: 0.1,
+            height: 0.1,
+            polygon: sam2PreviewPolygon,
+            has_polygon: true,
+            confidence: 1.0,
+            is_predicted: false
+        };
+        
+        annotations.push(annotation);
+        selectedAnnotation = annotation;
+        sam2PreviewPolygon = null;  // Clear preview
+        
+        addToHistory();
+        drawCanvas();
+        renderAnnotationsList();
+        
+        // Auto-save if enabled
+        if (autoSaveEnabled) {
+            saveAnnotations(false);
+        }
+        
+        showToast('Polygon annotation saved!', 'success');
+        return;
+    }
+    
     // If holding Shift, always start drawing a new box (skip selection)
     const forceDrawing = e.shiftKey;
     
@@ -261,16 +317,46 @@ function getAnnotationAtPosition(x, y) {
     // Check in reverse order (most recent first)
     for (let i = annotations.length - 1; i >= 0; i--) {
         const ann = annotations[i];
-        const left = ann.x_center - ann.width / 2;
-        const right = ann.x_center + ann.width / 2;
-        const top = ann.y_center - ann.height / 2;
-        const bottom = ann.y_center + ann.height / 2;
         
-        if (x >= left && x <= right && y >= top && y <= bottom) {
-            return ann;
+        // Check polygon first if it exists
+        if (ann.has_polygon && ann.polygon && ann.polygon.length >= 3) {
+            if (isPointInPolygon(x, y, ann.polygon)) {
+                return ann;
+            }
+        }
+        
+        // Check bounding box if it has dimensions
+        if (ann.width > 0 && ann.height > 0) {
+            const left = ann.x_center - ann.width / 2;
+            const right = ann.x_center + ann.width / 2;
+            const top = ann.y_center - ann.height / 2;
+            const bottom = ann.y_center + ann.height / 2;
+            
+            if (x >= left && x <= right && y >= top && y <= bottom) {
+                return ann;
+            }
         }
     }
     return null;
+}
+
+function isPointInPolygon(x, y, polygon) {
+    // Ray casting algorithm for point-in-polygon test
+    let inside = false;
+    
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        const xi = polygon[i][0];
+        const yi = polygon[i][1];
+        const xj = polygon[j][0];
+        const yj = polygon[j][1];
+        
+        const intersect = ((yi > y) !== (yj > y)) &&
+            (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+        
+        if (intersect) inside = !inside;
+    }
+    
+    return inside;
 }
 
 function getHandleAtPosition(x, y, annotation) {
@@ -394,7 +480,7 @@ function handleMouseMove(e) {
     }
 }
 
-function handleMouseUp(e) {
+async function handleMouseUp(e) {
     if (isDragging) {
         isDragging = false;
         dragHandle = null;
@@ -418,8 +504,46 @@ function handleMouseUp(e) {
         };
         
         annotations.push(annotation);
+        selectedAnnotation = annotation;
         addToHistory();
         renderAnnotationsList();
+        
+        // Auto-convert to polygon if in SAM2 auto mode
+        if (sam2Enabled && sam2Mode === 'auto') {
+            currentBox = null;
+            drawCanvas();
+            
+            showToast('Auto-converting to polygon...', 'info');
+            
+            const polygon = await sam2PredictFromBox(
+                annotation.x_center,
+                annotation.y_center,
+                annotation.width,
+                annotation.height
+            );
+            
+            if (polygon && polygon.length >= 3) {
+                annotation.polygon = polygon;
+                annotation.has_polygon = true;
+                annotation.width = 0;
+                annotation.height = 0;
+                
+                addToHistory();
+                drawCanvas();
+                renderAnnotationsList();
+                
+                // Auto-save if enabled
+                if (autoSaveEnabled) {
+                    saveAnnotations(false);
+                }
+                
+                showToast(`Auto-converted to polygon with ${polygon.length} points`, 'success');
+            } else {
+                showToast('Auto-conversion failed, keeping box', 'warning');
+            }
+            
+            return;
+        }
     }
     
     currentBox = null;
@@ -456,45 +580,56 @@ function drawCanvas() {
         if (!cls) return;
         
         const isSelected = selectedAnnotation && selectedAnnotation.id === ann.id;
-        const x = (ann.x_center - ann.width / 2) * canvas.width;
-        const y = (ann.y_center - ann.height / 2) * canvas.height;
-        const w = ann.width * canvas.width;
-        const h = ann.height * canvas.height;
         
-        ctx.strokeStyle = cls.color;
-        ctx.lineWidth = (isSelected ? 3 : 2) / zoom; // Scale line width inversely with zoom
-        ctx.strokeRect(x, y, w, h);
+        // Only draw bounding box if it has meaningful dimensions (not converted to polygon)
+        if (ann.width > 0 && ann.height > 0) {
+            const x = (ann.x_center - ann.width / 2) * canvas.width;
+            const y = (ann.y_center - ann.height / 2) * canvas.height;
+            const w = ann.width * canvas.width;
+            const h = ann.height * canvas.height;
+            
+            ctx.strokeStyle = cls.color;
+            ctx.lineWidth = (isSelected ? 3 : 2) / zoom; // Scale line width inversely with zoom
+            ctx.strokeRect(x, y, w, h);
+        }
         
-        // Draw label
-        ctx.save();
-        ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset transform for text to keep it readable
-        ctx.scale(zoom, zoom);
-        ctx.translate(panX, panY);
-        
-        ctx.fillStyle = cls.color;
-        const textWidth = ctx.measureText(cls.name).width;
-        ctx.fillRect(x, y - 24, textWidth + 12, 24);
-        ctx.fillStyle = 'white';
-        ctx.font = '14px sans-serif';
-        ctx.fillText(cls.name, x + 6, y - 6);
-        ctx.restore();
-        
-        // Draw resize handles for selected annotation
-        if (isSelected) {
-            const handleSize = 8 / zoom; // Scale handles inversely with zoom
+        // Draw label and handles only if box has dimensions
+        if (ann.width > 0 && ann.height > 0) {
+            const x = (ann.x_center - ann.width / 2) * canvas.width;
+            const y = (ann.y_center - ann.height / 2) * canvas.height;
+            const w = ann.width * canvas.width;
+            const h = ann.height * canvas.height;
+            
+            ctx.save();
+            ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset transform for text to keep it readable
+            ctx.scale(zoom, zoom);
+            ctx.translate(panX, panY);
+            
             ctx.fillStyle = cls.color;
+            const textWidth = ctx.measureText(cls.name).width;
+            ctx.fillRect(x, y - 24, textWidth + 12, 24);
+            ctx.fillStyle = 'white';
+            ctx.font = '14px sans-serif';
+            ctx.fillText(cls.name, x + 6, y - 6);
+            ctx.restore();
             
-            // Corner handles
-            ctx.fillRect(x - handleSize/2, y - handleSize/2, handleSize, handleSize);
-            ctx.fillRect(x + w - handleSize/2, y - handleSize/2, handleSize, handleSize);
-            ctx.fillRect(x - handleSize/2, y + h - handleSize/2, handleSize, handleSize);
-            ctx.fillRect(x + w - handleSize/2, y + h - handleSize/2, handleSize, handleSize);
-            
-            // Edge handles
-            ctx.fillRect(x + w/2 - handleSize/2, y - handleSize/2, handleSize, handleSize);
-            ctx.fillRect(x + w/2 - handleSize/2, y + h - handleSize/2, handleSize, handleSize);
-            ctx.fillRect(x - handleSize/2, y + h/2 - handleSize/2, handleSize, handleSize);
-            ctx.fillRect(x + w - handleSize/2, y + h/2 - handleSize/2, handleSize, handleSize);
+            // Draw resize handles for selected annotation
+            if (isSelected) {
+                const handleSize = 8 / zoom; // Scale handles inversely with zoom
+                ctx.fillStyle = cls.color;
+                
+                // Corner handles
+                ctx.fillRect(x - handleSize/2, y - handleSize/2, handleSize, handleSize);
+                ctx.fillRect(x + w - handleSize/2, y - handleSize/2, handleSize, handleSize);
+                ctx.fillRect(x - handleSize/2, y + h - handleSize/2, handleSize, handleSize);
+                ctx.fillRect(x + w - handleSize/2, y + h - handleSize/2, handleSize, handleSize);
+                
+                // Edge handles
+                ctx.fillRect(x + w/2 - handleSize/2, y - handleSize/2, handleSize, handleSize);
+                ctx.fillRect(x + w/2 - handleSize/2, y + h - handleSize/2, handleSize, handleSize);
+                ctx.fillRect(x - handleSize/2, y + h/2 - handleSize/2, handleSize, handleSize);
+                ctx.fillRect(x + w - handleSize/2, y + h/2 - handleSize/2, handleSize, handleSize);
+            }
         }
     });
     
@@ -1290,3 +1425,617 @@ function deleteAnnotation(annId) {
     renderAnnotationsList();
 }
 
+
+// =======================================
+// SAM2 (Segment Anything 2) Integration
+// =======================================
+
+let sam2Enabled = false;
+let sam2Mode = 'hover'; // 'hover' or 'box'
+let sam2DetailLevel = 5; // 0 (coarse) to 10 (fine)
+let sam2PreviewPolygon = null;
+let sam2HoverTimeout = null;
+let sam2LastHoverPoint = null;
+let sam2Models = [];
+let sam2SelectedModel = null;
+
+async function loadSAM2Models() {
+    try {
+        const response = await fetch('/api/sam2/models');
+        const data = await response.json();
+        
+        sam2Models = data.models;
+        const select = document.getElementById('sam2ModelSelect');
+        select.innerHTML = '';
+        
+        // Find first downloaded model or default to tiny
+        let defaultModel = sam2Models.find(m => m.downloaded) || sam2Models[0];
+        
+        sam2Models.forEach(model => {
+            const option = document.createElement('option');
+            option.value = model.key;
+            option.textContent = `${model.name} (${model.params}) - ${model.speed}`;
+            if (model.downloaded) {
+                option.textContent += ' ✓';
+            }
+            if (model.key === defaultModel.key) {
+                option.selected = true;
+                sam2SelectedModel = model.key;
+            }
+            select.appendChild(option);
+        });
+        
+        updateSAM2ModelDownloadButton();
+    } catch (error) {
+        console.error('Failed to load SAM2 models:', error);
+    }
+}
+
+function updateSAM2ModelDownloadButton() {
+    const select = document.getElementById('sam2ModelSelect');
+    const downloadDiv = document.getElementById('sam2ModelDownload');
+    const selectedModel = sam2Models.find(m => m.key === select.value);
+    
+    if (selectedModel && !selectedModel.downloaded) {
+        downloadDiv.style.display = 'block';
+    } else {
+        downloadDiv.style.display = 'none';
+    }
+}
+
+async function changeSAM2Model() {
+    const select = document.getElementById('sam2ModelSelect');
+    const modelKey = select.value;
+    const selectedModel = sam2Models.find(m => m.key === modelKey);
+    
+    updateSAM2ModelDownloadButton();
+    
+    if (!selectedModel || !selectedModel.downloaded) {
+        showToast('Model not downloaded. Click "Download Model" button.', 'warning');
+        return;
+    }
+    
+    try {
+        showToast(`Loading ${selectedModel.name}...`, 'info');
+        const response = await fetch('/api/sam2/set-model', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model_size: modelKey })
+        });
+        
+        if (response.ok) {
+            sam2SelectedModel = modelKey;
+            showToast(`${selectedModel.name} loaded successfully`, 'success');
+        } else {
+            const error = await response.json();
+            showToast(`Failed to load model: ${error.error}`, 'error');
+        }
+    } catch (error) {
+        console.error('Error setting SAM2 model:', error);
+        showToast('Failed to set model', 'error');
+    }
+}
+
+async function downloadSAM2Model() {
+    const select = document.getElementById('sam2ModelSelect');
+    const modelKey = select.value;
+    const selectedModel = sam2Models.find(m => m.key === modelKey);
+    
+    if (!selectedModel) return;
+    
+    const downloadBtn = document.querySelector('#sam2ModelDownload button');
+    const originalText = downloadBtn.textContent;
+    downloadBtn.disabled = true;
+    downloadBtn.textContent = '⏳ Downloading...';
+    
+    try {
+        showToast(`Downloading ${selectedModel.name}... This may take a few minutes.`, 'info');
+        
+        const response = await fetch(`/api/sam2/models/${modelKey}/download`, {
+            method: 'POST'
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+            showToast(`${selectedModel.name} downloaded successfully!`, 'success');
+            // Reload model list to update status
+            await loadSAM2Models();
+            // Auto-select the downloaded model
+            await changeSAM2Model();
+        } else {
+            showToast(`Download failed: ${result.error}`, 'error');
+            downloadBtn.disabled = false;
+            downloadBtn.textContent = originalText;
+        }
+    } catch (error) {
+        console.error('Error downloading SAM2 model:', error);
+        showToast('Download failed', 'error');
+        downloadBtn.disabled = false;
+        downloadBtn.textContent = originalText;
+    }
+}
+
+function toggleSAM2Mode() {
+    sam2Enabled = document.getElementById('sam2EnabledCheckbox').checked;
+    const controls = document.getElementById('sam2Controls');
+    controls.style.display = sam2Enabled ? 'block' : 'none';
+    
+    if (sam2Enabled) {
+        // Load models when SAM2 is first enabled
+        if (sam2Models.length === 0) {
+            loadSAM2Models();
+        }
+        showToast('SAM2 Mode enabled', 'success');
+    } else {
+        showToast('SAM2 Mode disabled', 'info');
+        sam2PreviewPolygon = null;
+        drawCanvas();
+    }
+}
+
+function updateSAM2Mode() {
+    sam2Mode = document.getElementById('sam2ModeSelect').value;
+    sam2PreviewPolygon = null;
+    drawCanvas();
+    
+    if (sam2Mode === 'hover') {
+        showToast('SAM2: Hover to preview segmentation', 'info');
+    } else if (sam2Mode === 'box') {
+        showToast('SAM2: Draw box, then press S to convert', 'info');
+    } else if (sam2Mode === 'auto') {
+        showToast('SAM2: Draw box to auto-convert to polygon', 'info');
+    }
+}
+
+function updateSAM2Detail() {
+    const slider = document.getElementById('sam2DetailSlider');
+    sam2DetailLevel = parseFloat(slider.value);
+    
+    const labels = ['Very Coarse', 'Coarse', 'Medium-Coarse', 'Medium', 'Medium-Fine', 'Fine', 'Very Fine'];
+    const labelIndex = Math.min(Math.floor(sam2DetailLevel / 1.5), labels.length - 1);
+    document.getElementById('sam2DetailValue').textContent = labels[labelIndex];
+}
+
+// Convert detail level (0-10) to simplification tolerance (pixels)
+function getSAM2Tolerance() {
+    // Higher detail = lower tolerance (more points)
+    // Lower detail = higher tolerance (fewer points)
+    return Math.max(0.5, 10 - sam2DetailLevel);
+}
+
+async function sam2PredictFromPoint(x, y) {
+    if (!currentImage || !currentImageData) return null;
+    
+    try {
+        const response = await fetch(`/api/projects/${PROJECT_ID}/sam2/predict-point`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                image_id: currentImageData.id,
+                point_x: x,
+                point_y: y,
+                simplification: getSAM2Tolerance(),
+                model_size: sam2SelectedModel
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (!response.ok) {
+            if (response.status === 503 && result.message) {
+                // Model not downloaded - show one-time warning
+                if (!window.sam2ModelWarningShown) {
+                    showToast(`SAM2 not ready: ${result.message}. Run: ./download_sam2.sh`, 'error');
+                    window.sam2ModelWarningShown = true;
+                    console.error('SAM2 model not found:', result.instructions);
+                }
+                return null;
+            }
+            throw new Error(`HTTP ${response.status}: ${result.error || 'Unknown error'}`);
+        }
+        
+        if (result.error) {
+            console.error('SAM2 prediction error:', result.error);
+            return null;
+        }
+        
+        return result.polygon;
+    } catch (error) {
+        console.error('SAM2 API error:', error);
+        return null;
+    }
+}
+
+async function sam2PredictFromBox(x_center, y_center, width, height) {
+    if (!currentImage || !currentImageData) return null;
+    
+    try {
+        const response = await fetch(`/api/projects/${PROJECT_ID}/sam2/predict-box`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                image_id: currentImageData.id,
+                x_center: x_center,
+                y_center: y_center,
+                width: width,
+                height: height,
+                simplification: getSAM2Tolerance(),
+                model_size: sam2SelectedModel
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (!response.ok) {
+            if (response.status === 503 && result.message) {
+                // Model not downloaded - show one-time warning
+                if (!window.sam2ModelWarningShown) {
+                    showToast(`SAM2 not ready: ${result.message}. Run: ./download_sam2.sh`, 'error');
+                    window.sam2ModelWarningShown = true;
+                    console.error('SAM2 model not found:', result.instructions);
+                }
+                return null;
+            }
+            throw new Error(`HTTP ${response.status}: ${result.error || 'Unknown error'}`);
+        }
+        
+        if (result.error) {
+            console.error('SAM2 box prediction error:', result.error);
+            return null;
+        }
+        
+        return result.polygon;
+    } catch (error) {
+        console.error('SAM2 API error:', error);
+        return null;
+    }
+}
+
+// Draw polygon on canvas
+function drawPolygon(polygon, style = {}) {
+    if (!polygon || polygon.length < 3) return;
+    
+    const color = style.color || '#8B5CF6';
+    const fillAlpha = style.fillAlpha || 0.2;
+    const lineWidth = style.lineWidth || 2;
+    const dashed = style.dashed || false;
+    
+    ctx.save();
+    // Apply same transformation as boxes: scale then translate
+    ctx.scale(zoom, zoom);
+    ctx.translate(panX, panY);
+    
+    // Draw filled polygon - use canvas dimensions like boxes do
+    ctx.fillStyle = color + Math.floor(fillAlpha * 255).toString(16).padStart(2, '0');
+    ctx.beginPath();
+    ctx.moveTo(polygon[0][0] * canvas.width, polygon[0][1] * canvas.height);
+    for (let i = 1; i < polygon.length; i++) {
+        ctx.lineTo(polygon[i][0] * canvas.width, polygon[i][1] * canvas.height);
+    }
+    ctx.closePath();
+    ctx.fill();
+    
+    // Draw outline
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lineWidth / zoom;
+    if (dashed) {
+        ctx.setLineDash([10 / zoom, 5 / zoom]);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+    
+    // Draw vertices
+    if (style.showVertices) {
+        ctx.fillStyle = color;
+        polygon.forEach(point => {
+            const x = point[0] * canvas.width;
+            const y = point[1] * canvas.height;
+            ctx.beginPath();
+            ctx.arc(x, y, 3 / zoom, 0, Math.PI * 2);
+            ctx.fill();
+        });
+    }
+    
+    ctx.restore();
+}
+
+// Handle SAM2 hover preview (debounced)
+function handleSAM2Hover(normalizedX, normalizedY) {
+    if (!sam2Enabled || sam2Mode !== 'hover' || !currentImage) return;
+    
+    // Clear any pending timeout
+    if (sam2HoverTimeout) {
+        clearTimeout(sam2HoverTimeout);
+    }
+    
+    // Debounce the API call (wait for mouse to settle)
+    sam2HoverTimeout = setTimeout(async () => {
+        // Check if mouse is still in roughly the same position
+        const polygon = await sam2PredictFromPoint(normalizedX, normalizedY);
+        
+        if (polygon) {
+            sam2PreviewPolygon = polygon;
+            sam2LastHoverPoint = { x: normalizedX, y: normalizedY };
+            drawCanvas(); // This will draw the preview polygon
+        }
+    }, 300); // 300ms debounce
+}
+
+// Convert selected annotation box to polygon
+async function convertBoxToPolygon() {
+    if (!sam2Enabled || sam2Mode !== 'box') {
+        showToast('SAM2 box mode not enabled', 'error');
+        return;
+    }
+    
+    if (!selectedAnnotation) {
+        showToast('No annotation selected. Draw a box first!', 'error');
+        return;
+    }
+    
+    showToast('Converting box to polygon...', 'info');
+    
+    const polygon = await sam2PredictFromBox(
+        selectedAnnotation.x_center,
+        selectedAnnotation.y_center,
+        selectedAnnotation.width,
+        selectedAnnotation.height
+    );
+    
+    if (polygon && polygon.length >= 3) {
+        // Store polygon in annotation and remove box dimensions
+        selectedAnnotation.polygon = polygon;
+        selectedAnnotation.has_polygon = true;
+        
+        // Set box dimensions to minimal values so only polygon is visible
+        selectedAnnotation.width = 0;
+        selectedAnnotation.height = 0;
+        
+        addToHistory();
+        drawCanvas();
+        renderAnnotationsList();
+        
+        // Auto-save if enabled
+        if (autoSaveEnabled) {
+            saveAnnotations(false);
+        }
+        
+        showToast(`Polygon created with ${polygon.length} points`, 'success');
+    } else {
+        showToast('Failed to generate polygon', 'error');
+    }
+}
+
+// Add 'S' key handler for SAM2 box-to-polygon conversion
+// This should be added to setupKeyboardShortcuts()
+// We'll override the function to include this
+
+const originalSetupKeyboardShortcuts = setupKeyboardShortcuts;
+setupKeyboardShortcuts = function() {
+    originalSetupKeyboardShortcuts();
+    
+    // Add to existing keydown listener
+    document.addEventListener('keydown', (e) => {
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+        
+        // 'S' key to convert box to polygon with SAM2
+        if (e.key === 's' || e.key === 'S') {
+            if (sam2Enabled && sam2Mode === 'box' && selectedAnnotation) {
+                e.preventDefault();
+                convertBoxToPolygon();
+                return;
+            }
+        }
+    });
+};
+
+// Modify handleMouseMove to include SAM2 hover preview
+const originalHandleMouseMove = handleMouseMove;
+handleMouseMove = function(e) {
+    // Call original handler first
+    originalHandleMouseMove(e);
+    
+    // Then handle SAM2 hover if enabled
+    if (sam2Enabled && sam2Mode === 'hover' && !isDrawing && !isDragging) {
+        const { x, y } = getCanvasCoordinates(e);
+        handleSAM2Hover(x, y);
+    }
+};
+
+// Modify drawCanvas to include polygon rendering
+const originalDrawCanvas = drawCanvas;
+drawCanvas = function() {
+    // Call original drawCanvas
+    originalDrawCanvas();
+    
+    // Draw polygons for annotations that have them
+    annotations.forEach(ann => {
+        if (ann.has_polygon && ann.polygon && ann.polygon.length >= 3) {
+            const classObj = classes.find(c => c.id === ann.class_id);
+            const color = classObj ? classObj.color : '#7C3AED';
+            const isSelected = selectedAnnotation && selectedAnnotation.id === ann.id;
+            
+            drawPolygon(ann.polygon, {
+                color: color,
+                fillAlpha: isSelected ? 0.3 : 0.15,
+                lineWidth: isSelected ? 3 : 2,
+                dashed: false,
+                showVertices: isSelected
+            });
+            
+            // Draw label for polygon-only annotations (no bounding box)
+            if (ann.width === 0 || ann.height === 0) {
+                ctx.save();
+                ctx.scale(zoom, zoom);
+                ctx.translate(panX, panY);
+                
+                // Find top-left point of polygon for label placement
+                let minX = Infinity, minY = Infinity;
+                ann.polygon.forEach(point => {
+                    minX = Math.min(minX, point[0] * canvas.width);
+                    minY = Math.min(minY, point[1] * canvas.height);
+                });
+                
+                ctx.fillStyle = color;
+                const textWidth = ctx.measureText(classObj.name).width;
+                ctx.fillRect(minX, minY - 24, textWidth + 12, 24);
+                ctx.fillStyle = 'white';
+                ctx.font = '14px sans-serif';
+                ctx.fillText(classObj.name, minX + 6, minY - 6);
+                ctx.restore();
+            }
+        }
+    });
+    
+    // Draw SAM2 preview polygon if hovering
+    if (sam2PreviewPolygon && sam2PreviewPolygon.length >= 3) {
+        const selectedClass = classes.find(c => c.id === selectedClassId);
+        const color = selectedClass ? selectedClass.color : '#8B5CF6';
+        
+        drawPolygon(sam2PreviewPolygon, {
+            color: color,
+            fillAlpha: 0.3,
+            lineWidth: 2,
+            dashed: true,
+            showVertices: false
+        });
+    }
+};
+
+// Modify saveAnnotations to include polygon data
+const originalSaveAnnotations = saveAnnotations;
+saveAnnotations = async function(autoNavigate = true) {
+    try {
+        const imageData = images[currentImageIndex];
+        
+        const annotationsToSave = annotations.map(ann => {
+            const data = {
+                class_id: ann.class_id,
+                x_center: ann.x_center,
+                y_center: ann.y_center,
+                width: ann.width,
+                height: ann.height
+            };
+            
+            // Include polygon if present (SAM2 support)
+            if (ann.has_polygon && ann.polygon) {
+                data.polygon_points = JSON.stringify(ann.polygon);
+            }
+            
+            return data;
+        });
+
+        await apiCall(`/api/images/${imageData.id}/annotations`, {
+            method: 'POST',
+            body: JSON.stringify({
+                annotations: annotationsToSave,
+                status: 'completed'
+            })
+        });
+        
+        // Update image status in local array
+        if (images[currentImageIndex]) {
+            images[currentImageIndex].status = 'completed';
+        }
+        
+        if (!autoSaveEnabled) {
+            showToast('Annotations saved!', 'success');
+        }
+        
+        // Move to next image only if requested and not auto-saving
+        if (autoNavigate && !autoSaveEnabled && currentImageIndex < images.length - 1) {
+            nextImage();
+        }
+    } catch (error) {
+        console.error('Save error:', error);
+        showToast('Failed to save annotations', 'error');
+        throw error; // Re-throw to prevent navigation on save failure
+    }
+};
+
+// Note: loadAnnotations override removed - polygon support is now in routes.py get_image_annotations
+
+console.log('✅ SAM2 Integration loaded');
+
+// =======================================
+// Class Mapping Persistence
+// =======================================
+
+// Save class mapping to localStorage
+function saveClassMappingToStorage() {
+    if (!selectedModelInfo) return;
+    
+    const key = `classMapping_project${PROJECT_ID}_${selectedModelInfo.type}_${selectedModelInfo.id || selectedExternalModel}`;
+    localStorage.setItem(key, JSON.stringify(classMapping));
+    console.log('💾 Saved class mapping:', key, classMapping);
+}
+
+// Load class mapping from localStorage
+function loadClassMappingFromStorage() {
+    if (!selectedModelInfo) return null;
+    
+    const key = `classMapping_project${PROJECT_ID}_${selectedModelInfo.type}_${selectedModelInfo.id || selectedExternalModel}`;
+    const saved = localStorage.getItem(key);
+    
+    if (saved) {
+        try {
+            const loaded = JSON.parse(saved);
+            console.log('📂 Loaded class mapping:', key, loaded);
+            return loaded;
+        } catch (e) {
+            console.error('Failed to parse saved class mapping:', e);
+            return null;
+        }
+    }
+    return null;
+}
+
+// Override updateClassMapping to auto-save
+const originalUpdateClassMapping = updateClassMapping;
+updateClassMapping = function(modelClassId, projectClassId) {
+    originalUpdateClassMapping(modelClassId, projectClassId);
+    saveClassMappingToStorage();
+};
+
+// Override renderClassMapping to restore saved mappings
+const originalRenderClassMapping = renderClassMapping;
+renderClassMapping = function(modelClasses) {
+    // Check if we have saved mappings first
+    const savedMapping = loadClassMappingFromStorage();
+    
+    if (savedMapping) {
+        // Use saved mapping
+        classMapping = savedMapping;
+        
+        // Render with saved selections
+        const mappingList = document.getElementById('classMappingList');
+        mappingList.innerHTML = modelClasses.map(modelCls => `
+            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                <span style="flex: 1; font-size: 0.875rem;">${modelCls.name}</span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M5 12h14m-7-7l7 7-7 7"/>
+                </svg>
+                <select id="mapping_${modelCls.id}" onchange="updateClassMapping(${modelCls.id}, this.value)" 
+                        style="flex: 1; padding: 0.375rem; border-radius: 0.375rem; border: 1px solid var(--border); font-size: 0.875rem;">
+                    <option value="">-- Skip --</option>
+                    ${classes.map(cls => `
+                        <option value="${cls.id}" ${savedMapping[modelCls.id] === cls.id ? 'selected' : ''}>
+                            ${cls.name}
+                        </option>
+                    `).join('')}
+                </select>
+            </div>
+        `).join('');
+        
+        showToast('Restored saved class mapping', 'info');
+    } else {
+        // No saved mapping, use original function
+        originalRenderClassMapping(modelClasses);
+        // Save the default mapping
+        saveClassMappingToStorage();
+    }
+};
+
+console.log('✅ Class Mapping Persistence loaded');
+/* Cache bust 1761918947 */

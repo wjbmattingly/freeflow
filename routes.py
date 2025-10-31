@@ -705,7 +705,8 @@ def get_image_annotations(image_id):
             'width': ann.width,
             'height': ann.height,
             'confidence': ann.confidence,
-            'is_predicted': ann.is_predicted
+            'is_predicted': ann.is_predicted,
+            'polygon_points': ann.polygon_points  # Include polygon data
         } for ann in image.annotations]
     })
 
@@ -725,7 +726,8 @@ def save_annotations(image_id):
             x_center=ann_data['x_center'],
             y_center=ann_data['y_center'],
             width=ann_data['width'],
-            height=ann_data['height']
+            height=ann_data['height'],
+            polygon_points=ann_data.get('polygon_points')  # Add polygon support
         )
         db.session.add(annotation)
     
@@ -1600,3 +1602,153 @@ def use_external_model(project_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+
+def sam2_predict_point(project_id):
+    """SAM2: Predict polygon segmentation from a point"""
+    from sam2_service import get_sam2_service
+    
+    project = Project.query.get_or_404(project_id)
+    data = request.json
+    
+    image_id = data.get('image_id')
+    point_x = data.get('point_x')  # Normalized 0-1
+    point_y = data.get('point_y')  # Normalized 0-1
+    simplification = data.get('simplification', 2.0)  # Pixel tolerance
+    model_size = data.get('model_size')  # Optional model size
+    
+    if not all([image_id, point_x is not None, point_y is not None]):
+        return jsonify({'error': 'Missing required parameters'}), 400
+    
+    image = Image.query.get_or_404(image_id)
+    
+    try:
+        sam2 = get_sam2_service()
+        result = sam2.predict_from_point(
+            image.filepath,
+            float(point_x),
+            float(point_y),
+            float(simplification),
+            model_size=model_size
+        )
+        
+        if 'error' in result:
+            return jsonify(result), 500
+        
+        return jsonify(result)
+        
+    except FileNotFoundError as e:
+        return jsonify({
+            'error': 'SAM2 model not found',
+            'message': 'Please download the SAM2 model first',
+            'instructions': 'Run: ./download_sam2.sh',
+            'details': str(e)
+        }), 503
+    except Exception as e:
+        print(f"❌ SAM2 error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+def sam2_predict_box(project_id):
+    """SAM2: Predict polygon segmentation from a bounding box"""
+    from sam2_service import get_sam2_service
+    
+    project = Project.query.get_or_404(project_id)
+    data = request.json
+    
+    image_id = data.get('image_id')
+    x_center = data.get('x_center')
+    y_center = data.get('y_center')
+    width = data.get('width')
+    height = data.get('height')
+    simplification = data.get('simplification', 2.0)
+    model_size = data.get('model_size')  # Optional model size
+    
+    if not all([image_id, x_center is not None, y_center is not None, width, height]):
+        return jsonify({'error': 'Missing required parameters'}), 400
+    
+    image = Image.query.get_or_404(image_id)
+    
+    try:
+        sam2 = get_sam2_service()
+        result = sam2.predict_from_box(
+            image.filepath,
+            float(x_center),
+            float(y_center),
+            float(width),
+            float(height),
+            float(simplification),
+            model_size=model_size
+        )
+        
+        if 'error' in result:
+            return jsonify(result), 500
+        
+        return jsonify(result)
+        
+    except FileNotFoundError as e:
+        return jsonify({
+            'error': 'SAM2 model not found',
+            'message': 'Please download the SAM2 model first',
+            'instructions': 'Run: ./download_sam2.sh',
+            'details': str(e)
+        }), 503
+    except Exception as e:
+        print(f"❌ SAM2 box prediction error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+def get_sam2_models():
+    """Get list of available SAM2 models and their download status"""
+    from sam2_service import get_available_models
+    
+    try:
+        models = get_available_models()
+        return jsonify({'models': models})
+    except Exception as e:
+        print(f"❌ Error getting SAM2 models: {e}")
+        return jsonify({'error': str(e)}), 500
+
+def download_sam2_model(model_key):
+    """Download a specific SAM2 model"""
+    from sam2_service import download_model
+    
+    try:
+        result = download_model(model_key)
+        
+        if 'error' in result:
+            return jsonify(result), 400
+        
+        return jsonify(result)
+    except Exception as e:
+        print(f"❌ Error downloading SAM2 model: {e}")
+        return jsonify({'error': str(e)}), 500
+
+def set_sam2_model():
+    """Set the active SAM2 model"""
+    from sam2_service import get_sam2_service
+    
+    data = request.json
+    model_size = data.get('model_size')
+    
+    if not model_size:
+        return jsonify({'error': 'model_size is required'}), 400
+    
+    try:
+        sam2 = get_sam2_service()
+        sam2.set_model_size(model_size)
+        return jsonify({
+            'message': f'SAM2 model set to {model_size}',
+            'model_size': model_size
+        })
+    except FileNotFoundError as e:
+        return jsonify({
+            'error': 'Model not downloaded',
+            'message': str(e)
+        }), 404
+    except Exception as e:
+        print(f"❌ Error setting SAM2 model: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500

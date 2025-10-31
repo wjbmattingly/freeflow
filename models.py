@@ -53,6 +53,10 @@ class Annotation(db.Model):
     width = db.Column(db.Float, nullable=False)
     height = db.Column(db.Float, nullable=False)
     
+    # Instance segmentation polygon (JSON array of normalized [x, y] coordinates)
+    # Format: [[x1, y1], [x2, y2], ...]
+    polygon_points = db.Column(db.Text)
+    
     confidence = db.Column(db.Float, default=1.0)  # For model predictions
     is_predicted = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

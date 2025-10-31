@@ -74,6 +74,11 @@ app.route('/api/projects/<int:project_id>/predict', methods=['POST'])(routes.pre
 app.route('/api/projects/<int:project_id>/external-models', methods=['GET'])(routes.get_external_models)
 app.route('/api/projects/<int:project_id>/custom-models/<int:model_id>/classes', methods=['GET'])(routes.get_custom_model_classes)
 app.route('/api/projects/<int:project_id>/use-external-model', methods=['POST'])(routes.use_external_model)
+app.route('/api/projects/<int:project_id>/sam2/predict-point', methods=['POST'])(routes.sam2_predict_point)
+app.route('/api/projects/<int:project_id>/sam2/predict-box', methods=['POST'])(routes.sam2_predict_box)
+app.route('/api/sam2/models', methods=['GET'])(routes.get_sam2_models)
+app.route('/api/sam2/models/<model_key>/download', methods=['POST'])(routes.download_sam2_model)
+app.route('/api/sam2/set-model', methods=['POST'])(routes.set_sam2_model)
 app.route('/api/projects/<int:project_id>/custom-models', methods=['POST'])(routes.upload_custom_model)
 app.route('/api/projects/<int:project_id>/custom-models/<int:model_id>', methods=['DELETE'])(routes.delete_custom_model)
 
@@ -90,4 +95,14 @@ def request_entity_too_large(error):
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
-    socketio.run(app, debug=True, host='127.0.0.1', port=5000, allow_unsafe_werkzeug=True)
+    
+    # Print all registered routes for debugging
+    print("\n" + "="*60)
+    print("REGISTERED ROUTES:")
+    print("="*60)
+    for rule in app.url_map.iter_rules():
+        print(f"{rule.methods} {rule.rule}")
+    print("="*60 + "\n")
+    
+    # Disable debug mode to prevent reloader issues
+    socketio.run(app, debug=False, host='127.0.0.1', port=5000, allow_unsafe_werkzeug=True)

@@ -105,6 +105,59 @@
             </div>
 
             <div class="sidebar-section">
+                <h3>🤖 SAM2 Segmentation</h3>
+                
+                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; padding: 0.5rem; background: rgba(139, 92, 246, 0.1); border-radius: 0.5rem; margin-bottom: 1rem;">
+                    <input type="checkbox" id="sam2EnabledCheckbox" onchange="toggleSAM2Mode()" style="cursor: pointer;">
+                    <span style="font-size: 0.875rem;">Enable SAM2 Mode</span>
+                </label>
+                
+                <div id="sam2Controls" style="display: none;">
+                    <div style="margin-bottom: 1rem;">
+                        <label style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.5rem; display: block;">Model</label>
+                        <select id="sam2ModelSelect" onchange="changeSAM2Model()" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--surface);">
+                            <option value="">Loading models...</option>
+                        </select>
+                        <div id="sam2ModelDownload" style="display: none; margin-top: 0.5rem;">
+                            <button onclick="downloadSAM2Model()" style="width: 100%; padding: 0.5rem; background: var(--primary-color); color: white; border: none; border-radius: 0.5rem; cursor: pointer; font-size: 0.75rem;">
+                                📥 Download Model
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div style="margin-bottom: 1rem;">
+                        <label style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.5rem; display: block;">Mode</label>
+                        <select id="sam2ModeSelect" onchange="updateSAM2Mode()" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--surface);">
+                            <option value="hover">Hover Preview (Point)</option>
+                            <option value="box">Box to Polygon (Press S)</option>
+                            <option value="auto">Auto Box to Polygon</option>
+                        </select>
+                    </div>
+                    
+                    <div style="margin-bottom: 1rem;">
+                        <label style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.5rem; display: block;">
+                            Polygon Detail: <span id="sam2DetailValue">Medium</span>
+                        </label>
+                        <input type="range" id="sam2DetailSlider" min="0" max="10" value="5" step="0.5" onchange="updateSAM2Detail()" style="width: 100%;">
+                        <div style="display: flex; justify-content: space-between; font-size: 0.625rem; color: var(--text-secondary); margin-top: 0.25rem;">
+                            <span>Coarse</span>
+                            <span>Fine</span>
+                        </div>
+                    </div>
+                    
+                    <div style="padding: 0.75rem; background: rgba(139, 92, 246, 0.05); border-radius: 0.5rem; border: 1px solid rgba(139, 92, 246, 0.2); margin-top: 0.75rem;">
+                        <h4 style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); margin: 0 0 0.5rem 0; text-transform: uppercase; letter-spacing: 0.5px;">💡 How to Use</h4>
+                        <ul style="font-size: 0.65rem; color: var(--text-secondary); margin: 0; padding-left: 1.2rem; line-height: 1.6;">
+                            <li><strong>Hover:</strong> Move mouse to preview, click to save polygon</li>
+                            <li><strong>Box:</strong> Draw box, press <kbd style="padding: 0.1rem 0.3rem; background: var(--surface); border: 1px solid var(--border); border-radius: 0.25rem; font-size: 0.6rem;">S</kbd> to convert</li>
+                            <li><strong>Auto:</strong> Draw box and it auto-converts to polygon</li>
+                            <li><strong>Detail:</strong> Adjust polygon complexity</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar-section">
                 <h3>History</h3>
                 <div class="history-actions">
                     <button class="btn-icon" onclick="undo()" title="Undo">↶</button>
@@ -123,6 +176,6 @@
 <script>
     const PROJECT_ID = {{ project_id }};
 </script>
-<script src="{{ url_for('static', filename='js/annotate.js') }}"></script>
+<script src="{{ url_for('static', filename='js/annotate.js') }}?v={{ range(1, 9999999) | random }}"></script>
 {% endblock %}
 
