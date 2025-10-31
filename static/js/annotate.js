@@ -15,7 +15,7 @@ let customModels = [];
 let selectedExternalModel = null;
 let selectedModelInfo = null;
 let classMapping = {};
-let labelAssistEnabled = true; // Default to enabled
+let labelAssistEnabled = false; // Default to disabled
 let labelAssistConfig = {
     modelPath: null,
     confidence: 0.5,
@@ -42,11 +42,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const urlParams = new URLSearchParams(window.location.search);
     currentFilter = urlParams.get('filter') || 'all';
     
-    // Initialize default button states for label assist (enabled by default)
+    // Initialize default button states for label assist (disabled by default)
     const assistBtn = document.getElementById('assistBtn');
-    if (assistBtn && labelAssistEnabled) {
-        assistBtn.style.background = 'var(--primary-color)';
-        assistBtn.style.color = 'white';
+    if (assistBtn && !labelAssistEnabled) {
+        // Ensure button starts in disabled state
+        assistBtn.style.background = '';
+        assistBtn.style.color = '';
     }
     
     loadClasses();
@@ -873,7 +874,7 @@ function renderAssistClasses() {
     let persistentModeHtml = `
         <div style="margin-bottom: 1rem; padding: 1rem; background: rgba(124, 58, 237, 0.1); border-radius: 0.5rem; border: 1px solid var(--primary-color);">
             <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: 500; cursor: pointer;">
-                <input type="checkbox" id="enablePersistentAssist" ${labelAssistEnabled ? 'checked' : ''}>
+                <input type="checkbox" id="enablePersistentAssist" checked>
                 <span>Enable Continuous Label Assist</span>
             </label>
             <p style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.5rem; margin-left: 1.5rem;">
