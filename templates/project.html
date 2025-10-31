@@ -59,24 +59,34 @@
                 <label style="display: flex; align-items: center; gap: 0.5rem;">
                     <span style="font-size: 0.875rem;">Per page:</span>
                     <select id="imagesPerPage" onchange="changeImagesPerPage()" style="padding: 0.5rem; border-radius: 0.375rem; border: 1px solid var(--border);">
-                        <option value="10">10</option>
-                        <option value="20" selected>20</option>
-                        <option value="50">50</option>
-                        <option value="100">100</option>
-                        <option value="200">200</option>
+                        <option value="10">10 (5×2)</option>
+                        <option value="15">15 (5×3)</option>
+                        <option value="20">20 (5×4)</option>
+                        <option value="25" selected>25 (5×5)</option>
+                        <option value="50">50 (5×10)</option>
+                        <option value="100">100 (5×20)</option>
+                        <option value="200">200 (5×40)</option>
                     </select>
                 </label>
             </div>
+        </div>
+
+        <!-- Top Pagination Controls -->
+        <div class="pagination-controls" id="paginationControlsTop" style="display: none; margin-bottom: 1rem;">
+            <button class="btn btn-secondary" onclick="previousPage()" id="prevPageBtnTop">← Previous</button>
+            <span id="pageInfoTop" style="margin: 0 1rem; font-size: 0.875rem;">Page 1 of 1</span>
+            <button class="btn btn-secondary" onclick="nextPage()" id="nextPageBtnTop">Next →</button>
         </div>
 
         <div id="imagesGrid" class="images-grid">
             <!-- Images will be loaded here -->
         </div>
 
-        <div class="pagination-controls" id="paginationControls" style="display: none;">
-            <button class="btn btn-secondary" onclick="previousPage()" id="prevPageBtn">← Previous</button>
-            <span id="pageInfo" style="margin: 0 1rem; font-size: 0.875rem;">Page 1 of 1</span>
-            <button class="btn btn-secondary" onclick="nextPage()" id="nextPageBtn">Next →</button>
+        <!-- Bottom Pagination Controls -->
+        <div class="pagination-controls" id="paginationControlsBottom" style="display: none; margin-top: 1rem;">
+            <button class="btn btn-secondary" onclick="previousPage()" id="prevPageBtnBottom">← Previous</button>
+            <span id="pageInfoBottom" style="margin: 0 1rem; font-size: 0.875rem;">Page 1 of 1</span>
+            <button class="btn btn-secondary" onclick="nextPage()" id="nextPageBtnBottom">Next →</button>
         </div>
 
         <div class="data-sections" style="margin-top: 2rem;">

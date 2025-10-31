@@ -7,7 +7,7 @@ let currentFilter = 'all'; // 'all', 'annotated', 'unannotated'
 let classes = [];
 let datasetVersions = [];
 let currentPage = 1;
-let imagesPerPage = 20;
+let imagesPerPage = 25;
 let selectedImages = new Set(); // Track selected image IDs
 let socket = null; // SocketIO connection for real-time updates
 
@@ -189,7 +189,8 @@ function displayImagesGrid() {
                             currentFilter === 'annotated' ? 'No annotated images yet' :
                             'No unannotated images';
         grid.innerHTML = `<p class="empty-state" style="grid-column: 1/-1; text-align: center; padding: 3rem;">${emptyMessage}</p>`;
-        document.getElementById('paginationControls').style.display = 'none';
+        document.getElementById('paginationControlsTop').style.display = 'none';
+        document.getElementById('paginationControlsBottom').style.display = 'none';
         document.getElementById('totalImagesCount').textContent = '0';
         document.getElementById('showingCount').textContent = '0';
         return;
@@ -243,14 +244,26 @@ function displayImagesGrid() {
     // Update select all checkbox state
     updateSelectAllCheckbox();
     
-    // Update pagination controls
+    // Update pagination controls (both top and bottom)
     if (totalPages > 1) {
-        document.getElementById('paginationControls').style.display = 'flex';
-        document.getElementById('pageInfo').textContent = `Page ${currentPage} of ${totalPages}`;
-        document.getElementById('prevPageBtn').disabled = currentPage === 1;
-        document.getElementById('nextPageBtn').disabled = currentPage === totalPages;
+        const pageText = `Page ${currentPage} of ${totalPages}`;
+        const prevDisabled = currentPage === 1;
+        const nextDisabled = currentPage === totalPages;
+        
+        // Top pagination
+        document.getElementById('paginationControlsTop').style.display = 'flex';
+        document.getElementById('pageInfoTop').textContent = pageText;
+        document.getElementById('prevPageBtnTop').disabled = prevDisabled;
+        document.getElementById('nextPageBtnTop').disabled = nextDisabled;
+        
+        // Bottom pagination
+        document.getElementById('paginationControlsBottom').style.display = 'flex';
+        document.getElementById('pageInfoBottom').textContent = pageText;
+        document.getElementById('prevPageBtnBottom').disabled = prevDisabled;
+        document.getElementById('nextPageBtnBottom').disabled = nextDisabled;
     } else {
-        document.getElementById('paginationControls').style.display = 'none';
+        document.getElementById('paginationControlsTop').style.display = 'none';
+        document.getElementById('paginationControlsBottom').style.display = 'none';
     }
 }
 
@@ -264,8 +277,6 @@ function previousPage() {
     if (currentPage > 1) {
         currentPage--;
         displayImagesGrid();
-        // Scroll to top of images
-        document.getElementById('imagesGrid').scrollIntoView({ behavior: 'smooth' });
     }
 }
 
@@ -274,8 +285,6 @@ function nextPage() {
     if (currentPage < totalPages) {
         currentPage++;
         displayImagesGrid();
-        // Scroll to top of images
-        document.getElementById('imagesGrid').scrollIntoView({ behavior: 'smooth' });
     }
 }
 
