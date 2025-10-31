@@ -73,6 +73,9 @@ echo ""\n\
 echo "🐍 Testing Python import..."\n\
 python3 -c "import app; print(\"✅ App imports OK\")" || echo "❌ App import failed!"\n\
 echo ""\n\
+echo "🧪 Testing static file access..."\n\
+python3 -c "import os; static_path = os.path.join(os.path.dirname(os.path.abspath(\"app.py\")), \"static\"); print(f\"Static path: {static_path}\"); print(f\"Exists: {os.path.exists(static_path)}\")" || true\n\
+echo ""\n\
 echo "🌐 Starting server on port 7860..."\n\
 exec gunicorn --worker-class eventlet -w 1 --bind 0.0.0.0:7860 --timeout 120 --access-logfile - --error-logfile - --log-level debug app:app\n\
 ' > /app/start.sh && chmod +x /app/start.sh

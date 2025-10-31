@@ -10,9 +10,11 @@ app = Flask(__name__,
             static_url_path='/static',
             static_folder='static')
 
-# Add WhiteNoise to serve static files with gunicorn
+# Add WhiteNoise to serve static files with gunicorn (MUST be after app creation)
 from whitenoise import WhiteNoise
-app.wsgi_app = WhiteNoise(app.wsgi_app, root='static/', prefix='static/')
+static_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
+app.wsgi_app = WhiteNoise(app.wsgi_app, root=static_path, prefix='/static/')
+print(f"🔧 WhiteNoise configured to serve from: {static_path}")
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'your-secret-key-here')
 app.config['SESSION_COOKIE_SECURE'] = False  # Allow in HF iframe
 app.config['SESSION_COOKIE_HTTPONLY'] = True
