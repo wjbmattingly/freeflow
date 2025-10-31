@@ -1,11 +1,13 @@
-from flask import Flask
+from flask import Flask, request
 from flask_socketio import SocketIO
 from pathlib import Path
 from database import db
 import os
 
-# Create Flask app
-app = Flask(__name__)
+# Create Flask app with explicit static folder
+app = Flask(__name__, 
+            static_url_path='/static',
+            static_folder='static')
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'your-secret-key-here')
 app.config['SESSION_COOKIE_SECURE'] = False  # Allow in HF iframe
 app.config['SESSION_COOKIE_HTTPONLY'] = True
@@ -112,6 +114,19 @@ app.route('/api/sam2/set-model', methods=['POST'])(routes.set_sam2_model)
 app.route('/api/projects/<int:project_id>/custom-models', methods=['POST'])(routes.upload_custom_model)
 app.route('/api/projects/<int:project_id>/custom-models/<int:model_id>', methods=['DELETE'])(routes.delete_custom_model)
 
+# Add static file headers for iframe compatibility
+@app.after_request
+def add_header(response):
+    """Add headers to allow static files in iframes"""
+    # Allow embedding in iframes (for private HF Spaces)
+    response.headers['X-Frame-Options'] = 'ALLOWALL'
+    # CORS headers for static files
+    if request.path.startswith('/static/'):
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = '*'
+    return response
+
 # Error handlers
 @app.errorhandler(413)
 def request_entity_too_large(error):
@@ -121,6 +136,13 @@ def request_entity_too_large(error):
         'error': 'File too large',
         'message': 'The uploaded file exceeds the maximum size limit of 1GB. Please try a smaller file.'
     }), 413
+
+# Explicit static file route (helps with iframe context)
+@app.route('/static/<path:filename>')
+def serve_static(filename):
+    """Serve static files explicitly for iframe compatibility"""
+    from flask import send_from_directory
+    return send_from_directory('static', filename)
 
 if __name__ == '__main__':
     with app.app_context():

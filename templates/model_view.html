@@ -167,6 +167,6 @@
     const MODEL_ID = {{ model.id }};
     const MODEL_PATH = '{{ model.model_path }}';
 </script>
-<script src="/static/js/model_view.js"></script>
+<script src="{{ url_for('static', filename='js/model_view.js') }}"></script>
 {% endblock %}
 
