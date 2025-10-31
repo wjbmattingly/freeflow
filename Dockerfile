@@ -22,14 +22,16 @@ WORKDIR /app
 # Clone your repository from GitHub (as root, before switching users)
 ARG REPO_URL=https://github.com/wjbmattingly/freeflow
 RUN git clone ${REPO_URL} /tmp/repo && \
-    mv /tmp/repo/* /tmp/repo/.* /app/ 2>/dev/null || true && \
-    rm -rf /tmp/repo
+    cd /tmp/repo && \
+    cp -r . /app/ && \
+    cd /app && \
+    rm -rf /tmp/repo /app/.git
 
 # Install Python dependencies (as root)
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install gunicorn and eventlet for SocketIO support
-RUN pip install --no-cache-dir gunicorn eventlet Flask-CORS
+# Install gunicorn, eventlet, and whitenoise for production static file serving
+RUN pip install --no-cache-dir gunicorn eventlet Flask-CORS whitenoise
 
 # Create necessary directories with proper permissions
 RUN mkdir -p /app/models/sam2 \
@@ -60,11 +62,23 @@ else\n\
 fi\n\
 echo ""\n\
 echo "🗄️  Initializing database..."\n\
-python3 init_db.py\n\
+python3 init_db.py || echo "⚠️ Database init had issues"\n\
+echo ""\n\
+echo "📁 Verifying app structure..."\n\
+ls -la /app/ | head -20\n\
+echo ""\n\
+echo "📁 Checking static files..."\n\
+ls -la /app/static/css/ /app/static/js/ 2>&1 || echo "⚠️ Static files missing!"\n\
+echo ""\n\
+echo "🐍 Testing Python import..."\n\
+python3 -c "import app; print(\"✅ App imports OK\")" || echo "❌ App import failed!"\n\
 echo ""\n\
 echo "🌐 Starting server on port 7860..."\n\
-exec gunicorn --worker-class eventlet -w 1 --bind 0.0.0.0:7860 --timeout 120 --access-logfile - --error-logfile - app:app\n\
+exec gunicorn --worker-class eventlet -w 1 --bind 0.0.0.0:7860 --timeout 120 --access-logfile - --error-logfile - --log-level debug app:app\n\
 ' > /app/start.sh && chmod +x /app/start.sh
+
+# Verify static files exist (debugging)
+RUN ls -la /app/static/ || echo "⚠️  Static folder not found!"
 
 # Set proper ownership of all files to non-root user
 RUN chown -R user:user /app
