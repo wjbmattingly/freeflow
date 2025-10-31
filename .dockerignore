@@ -1,0 +1,57 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Database files (will be created fresh)
+*.db
+instance/*.db
+
+# Models (will be downloaded on startup)
+models/sam2/*.pt
+models/sam2/*.yaml
+
+# Large generated files
+training_runs/
+output_models/
+runs/
+datasets/
+
+# Uploads (user data)
+uploads/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+server.log
+
+# Documentation
+*.md
+!README.md
+
+# Scripts
+download_sam2.sh
+install_sam2.sh
+start.sh
+

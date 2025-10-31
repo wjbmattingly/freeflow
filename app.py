@@ -6,10 +6,17 @@ from database import db
 # Create Flask app
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key-here'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///annotation_platform.db'
+
+# Use absolute path for database in production (HuggingFace Spaces)
+import os
+db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance', 'annotation_platform.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['MAX_CONTENT_LENGTH'] = 1000 * 1024 * 1024  # 1GB max file size
+
+# Ensure instance directory exists
+os.makedirs(os.path.dirname(db_path), exist_ok=True)
 
 # Initialize extensions
 db.init_app(app)
@@ -30,6 +37,16 @@ import routes
 
 # Initialize routes with app and socketio instances
 routes.init_routes(app, socketio)
+
+# Initialize database (create tables if they don't exist)
+# This runs even when using gunicorn
+try:
+    with app.app_context():
+        db.create_all()
+        print(f"✅ Database initialized at: {db_path}")
+except Exception as e:
+    print(f"⚠️ Database initialization warning: {e}")
+    # Continue anyway - will be initialized by init_db.py if this fails
 
 # Register all routes
 app.route('/')(routes.index)
@@ -104,5 +121,10 @@ if __name__ == '__main__':
         print(f"{rule.methods} {rule.rule}")
     print("="*60 + "\n")
     
+    # Get port from environment variable (for HuggingFace Spaces) or default to 5000
+    import os
+    port = int(os.environ.get('PORT', 5000))
+    host = os.environ.get('HOST', '127.0.0.1')
+    
     # Disable debug mode to prevent reloader issues
-    socketio.run(app, debug=False, host='127.0.0.1', port=5000, allow_unsafe_werkzeug=True)
+    socketio.run(app, debug=False, host=host, port=port, allow_unsafe_werkzeug=True)
