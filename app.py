@@ -2,13 +2,16 @@ from flask import Flask
 from flask_socketio import SocketIO
 from pathlib import Path
 from database import db
+import os
 
 # Create Flask app
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'your-secret-key-here'
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'your-secret-key-here')
+app.config['SESSION_COOKIE_SECURE'] = False  # Allow in HF iframe
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'None'  # Required for iframe
 
 # Use absolute path for database in production (HuggingFace Spaces)
-import os
 db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance', 'annotation_platform.db')
 app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -20,10 +23,20 @@ os.makedirs(os.path.dirname(db_path), exist_ok=True)
 
 # Initialize extensions
 db.init_app(app)
+
+# Configure CORS for HuggingFace Spaces (works with both public and private)
 socketio = SocketIO(
     app, 
     cors_allowed_origins="*",
-    max_http_buffer_size=1000 * 1024 * 1024  # 1GB for large file uploads
+    cors_credentials=True,
+    max_http_buffer_size=1000 * 1024 * 1024,  # 1GB for large file uploads
+    async_mode='eventlet',
+    logger=True,
+    engineio_logger=True,
+    # Allow connections through HuggingFace's authentication proxy
+    allow_upgrades=True,
+    ping_timeout=60,
+    ping_interval=25
 )
 
 # Ensure upload directory exists
