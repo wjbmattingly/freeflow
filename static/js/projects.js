@@ -5,6 +5,33 @@ let projects = [];
 // Load projects on page load
 document.addEventListener('DOMContentLoaded', () => {
     loadProjects();
+    
+    // Setup event listeners for buttons
+    const newProjectBtn = document.getElementById('newProjectBtn');
+    const closeProjectModalBtn = document.getElementById('closeProjectModalBtn');
+    const cancelProjectBtn = document.getElementById('cancelProjectBtn');
+    const createProjectBtn = document.getElementById('createProjectBtn');
+    const searchInput = document.getElementById('searchProjects');
+    const sortSelect = document.getElementById('sortBy');
+    
+    if (newProjectBtn) newProjectBtn.addEventListener('click', showCreateProject);
+    if (closeProjectModalBtn) closeProjectModalBtn.addEventListener('click', closeCreateProject);
+    if (cancelProjectBtn) cancelProjectBtn.addEventListener('click', closeCreateProject);
+    if (createProjectBtn) createProjectBtn.addEventListener('click', createProject);
+    if (searchInput) searchInput.addEventListener('input', filterProjects);
+    if (sortSelect) sortSelect.addEventListener('change', loadProjects);
+    
+    // Setup add class button
+    const addClassBtn = document.getElementById('addClassBtn');
+    if (addClassBtn) addClassBtn.addEventListener('click', addClass);
+    
+    // Setup remove button for default class item
+    const defaultRemoveBtn = document.querySelector('#classesList .remove-class-btn');
+    if (defaultRemoveBtn) {
+        defaultRemoveBtn.addEventListener('click', () => {
+            defaultRemoveBtn.parentElement.remove();
+        });
+    }
 });
 
 async function loadProjects() {
@@ -29,7 +56,7 @@ function displayProjects(projectsToShow) {
     }
     
     grid.innerHTML = projectsToShow.map(project => `
-        <div class="project-card" onclick="location.href='/project/${project.id}'">
+        <div class="project-card" data-project-id="${project.id}" style="cursor: pointer;">
             <div class="project-thumbnail">
                 <img src="/api/projects/${project.id}/thumbnail" 
                      alt="${project.name}" 
@@ -49,6 +76,14 @@ function displayProjects(projectsToShow) {
             </div>
         </div>
     `).join('');
+    
+    // Add click handlers to project cards
+    grid.querySelectorAll('.project-card').forEach(card => {
+        card.addEventListener('click', () => {
+            const projectId = card.dataset.projectId;
+            location.href = `/project/${projectId}`;
+        });
+    });
 }
 
 function filterProjects() {
@@ -88,8 +123,13 @@ function addClass() {
     classItem.innerHTML = `
         <input type="text" class="class-name-input" placeholder="Class name">
         <input type="color" class="class-color-input" value="${randomColor}">
-        <button class="btn-icon" onclick="this.parentElement.remove()">✕</button>
+        <button class="btn-icon remove-class-btn">✕</button>
     `;
+    
+    // Add event listener to remove button
+    const removeBtn = classItem.querySelector('.remove-class-btn');
+    removeBtn.addEventListener('click', () => classItem.remove());
+    
     classList.appendChild(classItem);
 }
 

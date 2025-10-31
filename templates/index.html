@@ -6,12 +6,12 @@
 <div class="container">
     <div class="page-header">
         <h1>Projects</h1>
-        <button class="btn btn-primary" onclick="showCreateProject()">+ New Project</button>
+        <button class="btn btn-primary" id="newProjectBtn">+ New Project</button>
     </div>
 
     <div class="search-bar">
-        <input type="text" id="searchProjects" placeholder="Search projects" oninput="filterProjects()">
-        <select id="sortBy" onchange="loadProjects()">
+        <input type="text" id="searchProjects" placeholder="Search projects">
+        <select id="sortBy">
             <option value="date_edited">Sort: Date Edited</option>
             <option value="date_created">Sort: Date Created</option>
             <option value="name">Sort: Name</option>
@@ -28,7 +28,7 @@
     <div class="modal-content modal-large">
         <div class="modal-header">
             <h2>Let's create your project.</h2>
-            <button class="close-btn" onclick="closeCreateProject()">&times;</button>
+            <button class="close-btn" id="closeProjectModalBtn">&times;</button>
         </div>
         <div class="modal-body">
             <div class="form-grid">
@@ -86,15 +86,15 @@
                     <div class="class-item">
                         <input type="text" class="class-name-input" placeholder="Class name" value="object">
                         <input type="color" class="class-color-input" value="#FF6B6B">
-                        <button class="btn-icon" onclick="this.parentElement.remove()">✕</button>
+                        <button class="btn-icon remove-class-btn">✕</button>
                     </div>
                 </div>
-                <button class="btn btn-secondary" onclick="addClass()">+ Add Class</button>
+                <button class="btn btn-secondary" id="addClassBtn">+ Add Class</button>
             </div>
 
             <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeCreateProject()">Cancel</button>
-                <button class="btn btn-primary" onclick="createProject()">Create Public Project</button>
+                <button class="btn btn-secondary" id="cancelProjectBtn">Cancel</button>
+                <button class="btn btn-primary" id="createProjectBtn">Create Public Project</button>
             </div>
         </div>
     </div>

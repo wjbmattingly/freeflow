@@ -128,7 +128,8 @@ def add_header(response):
     """Add headers to allow embedding in iframes and CORS"""
     # Allow embedding in iframes (for private HF Spaces)
     response.headers['X-Frame-Options'] = 'ALLOWALL'
-    response.headers['Content-Security-Policy'] = "frame-ancestors 'self' https://huggingface.co https://*.hf.space"
+    # Allow scripts and styles, including inline event handlers (for compatibility)
+    response.headers['Content-Security-Policy'] = "frame-ancestors 'self' https://huggingface.co https://*.hf.space; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.socket.io; style-src 'self' 'unsafe-inline'"
     return response
 
 # Error handlers
