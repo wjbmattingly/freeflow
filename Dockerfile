@@ -29,7 +29,7 @@ RUN git clone ${REPO_URL} /tmp/repo && \
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Install gunicorn and eventlet for SocketIO support
-RUN pip install --no-cache-dir gunicorn eventlet
+RUN pip install --no-cache-dir gunicorn eventlet Flask-CORS
 
 # Create necessary directories with proper permissions
 RUN mkdir -p /app/models/sam2 \

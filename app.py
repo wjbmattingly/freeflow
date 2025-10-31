@@ -1,5 +1,6 @@
 from flask import Flask, request
 from flask_socketio import SocketIO
+from flask_cors import CORS
 from pathlib import Path
 from database import db
 import os
@@ -12,6 +13,13 @@ app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'your-secret-key-here')
 app.config['SESSION_COOKIE_SECURE'] = False  # Allow in HF iframe
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'None'  # Required for iframe
+
+# Enable CORS for all routes (required for private Spaces)
+CORS(app, 
+     resources={r"/*": {"origins": "*"}},
+     supports_credentials=True,
+     allow_headers="*",
+     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 
 # Use absolute path for database in production (HuggingFace Spaces)
 db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance', 'annotation_platform.db')
@@ -114,17 +122,13 @@ app.route('/api/sam2/set-model', methods=['POST'])(routes.set_sam2_model)
 app.route('/api/projects/<int:project_id>/custom-models', methods=['POST'])(routes.upload_custom_model)
 app.route('/api/projects/<int:project_id>/custom-models/<int:model_id>', methods=['DELETE'])(routes.delete_custom_model)
 
-# Add static file headers for iframe compatibility
+# Add headers for iframe compatibility
 @app.after_request
 def add_header(response):
-    """Add headers to allow static files in iframes"""
+    """Add headers to allow embedding in iframes and CORS"""
     # Allow embedding in iframes (for private HF Spaces)
     response.headers['X-Frame-Options'] = 'ALLOWALL'
-    # CORS headers for static files
-    if request.path.startswith('/static/'):
-        response.headers['Access-Control-Allow-Origin'] = '*'
-        response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
-        response.headers['Access-Control-Allow-Headers'] = '*'
+    response.headers['Content-Security-Policy'] = "frame-ancestors 'self' https://huggingface.co https://*.hf.space"
     return response
 
 # Error handlers
