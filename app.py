@@ -41,12 +41,20 @@ os.makedirs(os.path.dirname(db_path), exist_ok=True)
 db.init_app(app)
 
 # Configure CORS for HuggingFace Spaces (works with both public and private)
+# Try eventlet first (for production), fall back to threading for local dev
+try:
+    import eventlet
+    async_mode = 'eventlet'
+except ImportError:
+    async_mode = 'threading'
+    print("⚠️  eventlet not found, using threading mode for local development")
+
 socketio = SocketIO(
     app, 
     cors_allowed_origins="*",
     cors_credentials=True,
     max_http_buffer_size=1000 * 1024 * 1024,  # 1GB for large file uploads
-    async_mode='eventlet',
+    async_mode=async_mode,
     logger=True,
     engineio_logger=True,
     # Allow connections through HuggingFace's authentication proxy
@@ -127,6 +135,8 @@ app.route('/api/sam2/models/<model_key>/download', methods=['POST'])(routes.down
 app.route('/api/sam2/set-model', methods=['POST'])(routes.set_sam2_model)
 app.route('/api/projects/<int:project_id>/custom-models', methods=['POST'])(routes.upload_custom_model)
 app.route('/api/projects/<int:project_id>/custom-models/<int:model_id>', methods=['DELETE'])(routes.delete_custom_model)
+app.route('/api/export-projects', methods=['POST'])(routes.export_projects_endpoint)
+app.route('/api/import-projects', methods=['POST'])(routes.import_projects_endpoint)
 
 # Add headers for iframe compatibility
 @app.after_request

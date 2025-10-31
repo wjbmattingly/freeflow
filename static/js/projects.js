@@ -32,6 +32,27 @@ document.addEventListener('DOMContentLoaded', () => {
             defaultRemoveBtn.parentElement.remove();
         });
     }
+    
+    // Setup export/import buttons
+    const exportProjectBtn = document.getElementById('exportProjectBtn');
+    const importProjectBtn = document.getElementById('importProjectBtn');
+    const closeExportModalBtn = document.getElementById('closeExportModalBtn');
+    const cancelExportBtn = document.getElementById('cancelExportBtn');
+    const confirmExportBtn = document.getElementById('confirmExportBtn');
+    const closeImportModalBtn = document.getElementById('closeImportModalBtn');
+    const cancelImportBtn = document.getElementById('cancelImportBtn');
+    const confirmImportBtn = document.getElementById('confirmImportBtn');
+    const selectAllProjects = document.getElementById('selectAllProjects');
+    
+    if (exportProjectBtn) exportProjectBtn.addEventListener('click', showExportModal);
+    if (importProjectBtn) importProjectBtn.addEventListener('click', showImportModal);
+    if (closeExportModalBtn) closeExportModalBtn.addEventListener('click', closeExportModal);
+    if (cancelExportBtn) cancelExportBtn.addEventListener('click', closeExportModal);
+    if (confirmExportBtn) confirmExportBtn.addEventListener('click', exportSelectedProjects);
+    if (closeImportModalBtn) closeImportModalBtn.addEventListener('click', closeImportModal);
+    if (cancelImportBtn) cancelImportBtn.addEventListener('click', closeImportModal);
+    if (confirmImportBtn) confirmImportBtn.addEventListener('click', importProjects);
+    if (selectAllProjects) selectAllProjects.addEventListener('change', toggleSelectAllProjects);
 });
 
 async function loadProjects() {
@@ -177,6 +198,172 @@ async function createProject() {
         
     } catch (error) {
         showToast('Failed to create project', 'error');
+    }
+}
+
+// ==================== EXPORT/IMPORT FUNCTIONALITY ====================
+
+function showExportModal() {
+    const modal = document.getElementById('exportProjectModal');
+    const projectsList = document.getElementById('exportProjectsList');
+    
+    if (projects.length === 0) {
+        showToast('No projects to export', 'error');
+        return;
+    }
+    
+    // Populate projects list with checkboxes
+    projectsList.innerHTML = projects.map(project => `
+        <label style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; cursor: pointer; border-radius: 4px; transition: background 0.2s;"
+               onmouseover="this.style.background='var(--bg-secondary)'" 
+               onmouseout="this.style.background='transparent'">
+            <input type="checkbox" class="export-project-checkbox" value="${project.id}" style="width: auto;">
+            <div>
+                <div style="font-weight: 600;">${project.name}</div>
+                <div style="font-size: 0.875rem; color: var(--text-secondary);">
+                    ${project.image_count} images • ${project.annotated_count} annotated
+                </div>
+            </div>
+        </label>
+    `).join('');
+    
+    modal.classList.add('active');
+}
+
+function closeExportModal() {
+    document.getElementById('exportProjectModal').classList.remove('active');
+    document.getElementById('selectAllProjects').checked = false;
+}
+
+function toggleSelectAllProjects(e) {
+    const checkboxes = document.querySelectorAll('.export-project-checkbox');
+    checkboxes.forEach(cb => cb.checked = e.target.checked);
+}
+
+async function exportSelectedProjects() {
+    const checkboxes = document.querySelectorAll('.export-project-checkbox:checked');
+    const projectIds = Array.from(checkboxes).map(cb => parseInt(cb.value));
+    
+    if (projectIds.length === 0) {
+        showToast('Please select at least one project to export', 'error');
+        return;
+    }
+    
+    try {
+        showToast(`Exporting ${projectIds.length} project(s)...`, 'info');
+        
+        // Create a form to submit
+        const response = await fetch('/api/export-projects', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ project_ids: projectIds })
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Export failed');
+        }
+        
+        // Download the file
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        
+        // Get filename from Content-Disposition header or use default
+        const contentDisposition = response.headers.get('Content-Disposition');
+        let filename = 'freeflow_export.zip';
+        if (contentDisposition) {
+            const filenameMatch = contentDisposition.match(/filename="?(.+)"?/);
+            if (filenameMatch) {
+                filename = filenameMatch[1];
+            }
+        }
+        
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        
+        showToast('Export completed successfully!', 'success');
+        closeExportModal();
+        
+    } catch (error) {
+        console.error('Export error:', error);
+        showToast('Export failed: ' + error.message, 'error');
+    }
+}
+
+function showImportModal() {
+    document.getElementById('importProjectModal').classList.add('active');
+    document.getElementById('importProgress').style.display = 'none';
+    document.getElementById('importFileInput').value = '';
+}
+
+function closeImportModal() {
+    document.getElementById('importProjectModal').classList.remove('active');
+}
+
+async function importProjects() {
+    const fileInput = document.getElementById('importFileInput');
+    const file = fileInput.files[0];
+    
+    if (!file) {
+        showToast('Please select a file to import', 'error');
+        return;
+    }
+    
+    if (!file.name.endsWith('.zip')) {
+        showToast('Please select a valid zip file', 'error');
+        return;
+    }
+    
+    const progressDiv = document.getElementById('importProgress');
+    const progressFill = document.getElementById('importProgressFill');
+    const statusText = document.getElementById('importStatus');
+    
+    progressDiv.style.display = 'block';
+    progressFill.style.width = '10%';
+    statusText.textContent = 'Uploading file...';
+    
+    try {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('merge_strategy', 'rename');
+        
+        progressFill.style.width = '30%';
+        statusText.textContent = 'Processing import...';
+        
+        const response = await fetch('/api/import-projects', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const result = await response.json();
+        
+        if (!response.ok || !result.success) {
+            throw new Error(result.errors ? result.errors.join('\n') : 'Import failed');
+        }
+        
+        progressFill.style.width = '100%';
+        statusText.textContent = 'Import complete!';
+        
+        showToast(`Successfully imported ${result.projects_imported.length} project(s)!`, 'success');
+        
+        // Reload projects after a short delay
+        setTimeout(() => {
+            closeImportModal();
+            loadProjects();
+        }, 1500);
+        
+    } catch (error) {
+        console.error('Import error:', error);
+        statusText.textContent = 'Import failed: ' + error.message;
+        statusText.style.color = 'var(--error-color)';
+        showToast('Import failed: ' + error.message, 'error');
     }
 }
 

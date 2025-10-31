@@ -1752,3 +1752,95 @@ def set_sam2_model():
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
+
+# ==================== EXPORT/IMPORT ====================
+
+def export_projects_endpoint():
+    """Export one or more projects as a zip file"""
+    from export_import import export_projects
+    
+    data = request.json
+    project_ids = data.get('project_ids', [])
+    
+    if not project_ids:
+        return jsonify({'error': 'No project IDs provided'}), 400
+    
+    # Validate project IDs
+    for project_id in project_ids:
+        project = Project.query.get(project_id)
+        if not project:
+            return jsonify({'error': f'Project {project_id} not found'}), 404
+    
+    try:
+        zip_path = export_projects(project_ids)
+        
+        # Send file and cleanup after
+        def cleanup():
+            try:
+                os.remove(zip_path)
+            except:
+                pass
+        
+        response = send_file(
+            zip_path,
+            mimetype='application/zip',
+            as_attachment=True,
+            download_name=os.path.basename(zip_path)
+        )
+        
+        # Schedule cleanup after sending
+        # Note: In production, you might want a better cleanup mechanism
+        import atexit
+        atexit.register(cleanup)
+        
+        return response
+        
+    except Exception as e:
+        print(f"❌ Error exporting projects: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+def import_projects_endpoint():
+    """Import projects from an uploaded zip file"""
+    from export_import import import_projects
+    
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    
+    file = request.files['file']
+    
+    if not file.filename.endswith('.zip'):
+        return jsonify({'error': 'File must be a zip archive'}), 400
+    
+    # Save uploaded file temporarily
+    import tempfile
+    temp_fd, temp_path = tempfile.mkstemp(suffix='.zip')
+    os.close(temp_fd)
+    
+    try:
+        file.save(temp_path)
+        
+        # Import projects
+        merge_strategy = request.form.get('merge_strategy', 'rename')
+        results = import_projects(temp_path, merge_strategy)
+        
+        if results['success']:
+            return jsonify(results), 200
+        else:
+            return jsonify(results), 400
+            
+    except Exception as e:
+        print(f"❌ Error importing projects: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'errors': [str(e), traceback.format_exc()]
+        }), 500
+    finally:
+        # Cleanup temp file
+        try:
+            os.remove(temp_path)
+        except:
+            pass
