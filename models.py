@@ -104,6 +104,12 @@ class TrainingJob(db.Model):
     stop_early = db.Column(db.Boolean, default=False)
     error_message = db.Column(db.Text)
     
+    # Hugging Face Jobs fields
+    is_hf_job = db.Column(db.Boolean, default=False)
+    hf_job_id = db.Column(db.String(100))  # HF Jobs job ID
+    hf_username = db.Column(db.String(100))  # HF username
+    hf_hardware = db.Column(db.String(50))  # Hardware flavor used
+    
     # Training metrics stored as JSON
     metrics = db.Column(db.Text)  # JSON string
     

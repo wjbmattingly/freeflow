@@ -14,6 +14,9 @@ document.addEventListener('DOMContentLoaded', () => {
     initializeCharts();
 });
 
+// Make reEvaluateModel available globally for onclick handler
+window.reEvaluateModel = reEvaluateModel;
+
 async function loadProjectClasses() {
     try {
         const classes = await apiCall(`/api/projects/${PROJECT_ID}/classes`);
@@ -30,13 +33,49 @@ async function loadProjectClasses() {
     }
 }
 
+async function reEvaluateModel() {
+    const btn = document.getElementById('reEvaluateBtn');
+    const originalText = btn.textContent;
+    
+    try {
+        btn.disabled = true;
+        btn.textContent = '⏳ Evaluating...';
+        
+        showToast('Running evaluation on test set...', 'info');
+        
+        const result = await apiCall(`/api/training/${MODEL_ID}/evaluate`, {
+            method: 'POST'
+        });
+        
+        if (result.test_metrics) {
+            // Update metrics display
+            document.getElementById('test_map50').textContent = (result.test_metrics.map50 * 100).toFixed(1) + '%';
+            document.getElementById('test_precision').textContent = (result.test_metrics.precision * 100).toFixed(1) + '%';
+            document.getElementById('test_recall').textContent = (result.test_metrics.recall * 100).toFixed(1) + '%';
+            
+            // Reload class metrics
+            if (result.class_metrics) {
+                loadClassPrecision();
+            }
+            
+            showToast('✅ Model re-evaluated successfully!', 'success');
+        }
+    } catch (error) {
+        console.error('Failed to evaluate model:', error);
+        showToast('Evaluation failed: ' + (error.error || error.message || 'Unknown error'), 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = originalText;
+    }
+}
+
 async function loadModelData() {
     try {
         let model = await apiCall(`/api/training/${MODEL_ID}`);
         
         // Check if test metrics are missing and evaluate if needed
         if (model.test_map50 === null || model.test_map50 === undefined || isNaN(model.test_map50)) {
-            console.log('Test metrics missing, evaluating model...');
+            console.log('Test metrics missing, auto-evaluating model...');
             showToast('Evaluating model on test set...', 'info');
             
             try {

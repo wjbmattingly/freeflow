@@ -55,6 +55,8 @@
 
 ### 🏋️ **YOLOv11 Model Training**
 - ✅ Train with latest **YOLOv11** architecture (nano, small, medium, large, x-large)
+- ✅ **Train locally OR on Hugging Face Jobs** (cloud GPUs/TPUs)
+- ✅ **Hugging Face Jobs integration** with hardware selection (T4, A10G, A100, TPUs)
 - ✅ **Multiple simultaneous training jobs**
 - ✅ **Dataset versioning** with train/val/test splits
 - ✅ **Visual split slider** with color-coded sections

@@ -51,3 +51,4 @@ echo "Config location: $(pwd)/models/sam2/sam2_hiera_l.yaml"
 echo ""
 echo "You can now use SAM2 for instance segmentation!"
 
+

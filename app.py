@@ -115,6 +115,7 @@ app.route('/api/projects/<int:project_id>/dataset-versions', methods=['GET'])(ro
 app.route('/api/projects/<int:project_id>/dataset-versions', methods=['POST'])(routes.create_dataset_version)
 app.route('/api/projects/<int:project_id>/dataset-versions/<int:version_id>', methods=['DELETE'])(routes.delete_dataset_version)
 app.route('/api/projects/<int:project_id>/train', methods=['POST'])(routes.start_training)
+app.route('/api/projects/<int:project_id>/train-hf', methods=['POST'])(routes.start_training_hf_jobs)
 app.route('/api/training/<int:job_id>', methods=['GET'])(routes.get_training_job)
 app.route('/api/training/<int:job_id>', methods=['DELETE'])(routes.delete_training_job)
 app.route('/api/training/<int:job_id>/stop', methods=['POST'])(routes.stop_training_early)
@@ -145,7 +146,7 @@ def add_header(response):
     # Allow embedding in iframes (for private HF Spaces)
     response.headers['X-Frame-Options'] = 'ALLOWALL'
     # Allow scripts and styles, including inline event handlers (for compatibility)
-    response.headers['Content-Security-Policy'] = "frame-ancestors 'self' https://huggingface.co https://*.hf.space; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.socket.io; style-src 'self' 'unsafe-inline'"
+    response.headers['Content-Security-Policy'] = "frame-ancestors 'self' https://huggingface.co https://*.hf.space; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.socket.io https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'"
     return response
 
 # Error handlers

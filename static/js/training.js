@@ -28,10 +28,18 @@ let chartData = {
 let jobChartData = {};
 
 document.addEventListener('DOMContentLoaded', () => {
+    console.log('🚀 Training page loaded');
+    
     loadProjectInfo();
     setupSocketConnection();
     loadTrainingHistory();
     loadDatasetVersions();
+    
+    // Setup HF Jobs UI with a small delay to ensure DOM is ready
+    setTimeout(() => {
+        console.log('🔧 Setting up HF Jobs UI...');
+        setupHFJobsUI();
+    }, 100);
     
     // Check if version is pre-selected from URL
     const urlParams = new URLSearchParams(window.location.search);
@@ -133,7 +141,66 @@ async function loadDatasetVersions() {
     }
 }
 
+function setupHFJobsUI() {
+    const trainingLocation = document.getElementById('trainingLocation');
+    const hfJobsConfig = document.getElementById('hfJobsConfig');
+    const hfUsername = document.getElementById('hfUsername');
+    const hfApiKey = document.getElementById('hfApiKey');
+    
+    // Check if elements exist
+    if (!trainingLocation || !hfJobsConfig || !hfUsername || !hfApiKey) {
+        console.error('HF Jobs UI elements not found:', {
+            trainingLocation: !!trainingLocation,
+            hfJobsConfig: !!hfJobsConfig,
+            hfUsername: !!hfUsername,
+            hfApiKey: !!hfApiKey
+        });
+        return;
+    }
+    
+    console.log('✅ HF Jobs UI setup started');
+    
+    // Load cached credentials
+    const cachedUsername = localStorage.getItem('hf_username');
+    const cachedApiKey = localStorage.getItem('hf_api_key');
+    
+    if (cachedUsername) {
+        hfUsername.value = cachedUsername;
+        console.log('📝 Loaded cached HF username');
+    }
+    if (cachedApiKey) {
+        hfApiKey.value = cachedApiKey;
+        console.log('📝 Loaded cached HF API key');
+    }
+    
+    // Toggle HF Jobs config visibility
+    trainingLocation.addEventListener('change', (e) => {
+        console.log('Training location changed to:', e.target.value);
+        if (e.target.value === 'huggingface') {
+            hfJobsConfig.style.display = 'block';
+            console.log('✅ Showing HF Jobs config');
+        } else {
+            hfJobsConfig.style.display = 'none';
+            console.log('✅ Hiding HF Jobs config');
+        }
+    });
+    
+    // Cache credentials on change
+    hfUsername.addEventListener('change', (e) => {
+        localStorage.setItem('hf_username', e.target.value);
+        console.log('💾 Cached HF username');
+    });
+    
+    hfApiKey.addEventListener('change', (e) => {
+        localStorage.setItem('hf_api_key', e.target.value);
+        console.log('💾 Cached HF API key');
+    });
+    
+    console.log('✅ HF Jobs UI setup complete');
+}
+
 async function startTraining() {
+    const trainingLocation = document.getElementById('trainingLocation').value;
     const modelName = document.getElementById('modelName').value.trim();
     const modelSize = document.getElementById('modelSize').value;
     const epochs = parseInt(document.getElementById('epochs').value);
@@ -155,7 +222,83 @@ async function startTraining() {
         return;
     }
     
-    console.log('🚀 Starting training with config:', { 
+    // Check HF credentials if using HF Jobs
+    if (trainingLocation === 'huggingface') {
+        const hfUsername = document.getElementById('hfUsername').value.trim();
+        const hfApiKey = document.getElementById('hfApiKey').value.trim();
+        const hfHardware = document.getElementById('hfHardware').value;
+        
+        if (!hfUsername || !hfApiKey) {
+            showToast('Please enter your Hugging Face username and API key', 'error');
+            return;
+        }
+        
+        console.log('🚀 Starting HF Jobs training with config:', { 
+            modelName, 
+            modelSize, 
+            epochs, 
+            batchSize, 
+            imageSize, 
+            datasetVersionId,
+            hfUsername,
+            hfHardware
+        });
+        
+        try {
+            const result = await apiCall(`/api/projects/${PROJECT_ID}/train-hf`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    name: modelName,
+                    model_size: modelSize,
+                    epochs,
+                    batch_size: batchSize,
+                    image_size: imageSize,
+                    dataset_version_id: datasetVersionId,
+                    hf_username: hfUsername,
+                    hf_api_key: hfApiKey,
+                    hf_hardware: hfHardware
+                })
+            });
+            
+            console.log('✅ HF Jobs training started:', result);
+            
+            currentJobId = result.job_id;
+            activeJobIds.add(result.job_id);
+            
+            showToast('Training started on Hugging Face Jobs! Job #' + result.job_id, 'success');
+            
+            // Hide training config panel and show monitor
+            const trainingContainer = document.querySelector('.training-container');
+            const trainingConfig = document.querySelector('.training-config');
+            trainingConfig.style.display = 'none';
+            trainingContainer.classList.add('monitor-only');
+            document.getElementById('trainingCharts').style.display = 'block';
+            document.getElementById('newTrainingBtn').style.display = 'block';
+            document.getElementById('stopTrainingContainer').style.display = 'block';
+            document.getElementById('trainingStatus').innerHTML = `
+                <div style="text-align: center; padding: 1rem;">
+                    <p>Training Job #${result.job_id} on Hugging Face Jobs...</p>
+                    <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 0.5rem;">
+                        ℹ️ Note: Training charts will populate when the job completes and results are downloaded.
+                    </p>
+                </div>`;
+            
+            // Reinitialize socket connection to ensure clean state
+            setupSocketConnection();
+            initializeCharts();
+            
+            // Reload training history to show new job
+            await loadTrainingHistory();
+            
+        } catch (error) {
+            console.error('❌ Failed to start HF Jobs training:', error);
+            showToast('Failed to start training: ' + (error.message || 'Unknown error'), 'error');
+        }
+        
+        return;
+    }
+    
+    console.log('🚀 Starting local training with config:', { 
         modelName, 
         modelSize, 
         epochs, 
@@ -249,6 +392,22 @@ function handleTrainingComplete(data) {
     // Hide stop button
     document.getElementById('stopTrainingContainer').style.display = 'none';
     
+    // Display metrics if available
+    if (data.metrics && (Array.isArray(data.metrics.epochs) && data.metrics.epochs.length > 0)) {
+        console.log('📊 Displaying metrics:', data.metrics);
+        displayJobMetrics(data.metrics);
+    } else {
+        console.log('⚠️ No metrics in completion data');
+    }
+    
+    // Display test metrics if available
+    if (data.test_metrics) {
+        console.log('📊 Displaying test metrics:', data.test_metrics);
+        displayTestMetrics(data.test_metrics);
+    } else {
+        console.log('⚠️ No test metrics in completion data');
+    }
+    
     document.getElementById('trainingStatus').innerHTML = 
         `<div style="text-align: center;">
             <p style="color: var(--success); font-size: 1.25rem; font-weight: 600; margin-bottom: 0.5rem;">✅ Training Complete!</p>
@@ -265,6 +424,26 @@ function handleTrainingComplete(data) {
     
     activeJobIds.delete(data.job_id);
     loadTrainingHistory();
+}
+
+function displayTestMetrics(testMetrics) {
+    const testMetricsSection = document.getElementById('testMetricsSection');
+    
+    if (testMetrics && (testMetrics.map50 !== null || testMetrics.precision !== null || testMetrics.recall !== null)) {
+        testMetricsSection.style.display = 'block';
+        
+        document.getElementById('testMap50').textContent = 
+            testMetrics.map50 !== null ? (testMetrics.map50 * 100).toFixed(1) + '%' : '-';
+        document.getElementById('testPrecision').textContent = 
+            testMetrics.precision !== null ? (testMetrics.precision * 100).toFixed(1) + '%' : '-';
+        document.getElementById('testRecall').textContent = 
+            testMetrics.recall !== null ? (testMetrics.recall * 100).toFixed(1) + '%' : '-';
+        
+        console.log('✅ Test metrics displayed');
+    } else {
+        testMetricsSection.style.display = 'none';
+        console.log('⚠️ Test metrics not available');
+    }
 }
 
 function showConfigPanel() {
@@ -577,13 +756,17 @@ async function loadTrainingHistory() {
                 'x': 'X-Large'
             }[job.model_size || 'n'];
             
+            const isHFJob = job.is_hf_job || false;
+            const hfBadge = isHFJob ? '<span style="background: linear-gradient(to right, #ff9d00, #ff0844); color: white; padding: 0.15rem 0.4rem; border-radius: 0.25rem; font-size: 0.7rem; font-weight: 600;">🤗 HF Jobs</span>' : '';
+            
             return `
                 <div class="history-item ${isActive ? 'active' : ''}" style="position: relative;">
                     <div onclick="viewTrainingJob(${job.id})" style="cursor: pointer;">
                         <div class="history-header">
-                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
                                 <span class="status-badge ${statusClass}">${statusIcon} ${job.status}</span>
                                 <span style="font-weight: 600;">${job.name || `Job #${job.id}`}</span>
+                                ${hfBadge}
                                 ${isRunning ? '<span style="color: var(--warning); font-size: 0.75rem;">● LIVE</span>' : ''}
                             </div>
                             <span class="history-date">${new Date(job.created_at).toLocaleString()}</span>
@@ -594,6 +777,7 @@ async function loadTrainingHistory() {
                             <span>📦 Batch ${job.batch_size}</span>
                             <span>🖼️ ${job.image_size}px</span>
                             ${job.dataset_version_id ? '<span>📌 Versioned</span>' : '<span>🔀 Auto-split</span>'}
+                            ${isHFJob && job.hf_hardware ? `<span>⚡ ${job.hf_hardware}</span>` : ''}
                         </div>
                         ${isActive ? '<div style="margin-top: 0.5rem; color: var(--primary-color); font-size: 0.75rem;">👁️ Currently viewing</div>' : ''}
                     </div>
@@ -649,6 +833,14 @@ async function viewTrainingJob(jobId) {
         // If job is completed or failed, load its metrics
         if ((job.status === 'completed' || job.status === 'failed') && job.metrics) {
             displayJobMetrics(job.metrics);
+            // Also display test metrics if available
+            if (job.test_map50 !== null || job.test_precision !== null || job.test_recall !== null) {
+                displayTestMetrics({
+                    map50: job.test_map50,
+                    precision: job.test_precision,
+                    recall: job.test_recall
+                });
+            }
             showToast('Viewing completed job #' + jobId, 'info');
         } 
         // If job is still running, restore chart data if we have it, otherwise initialize fresh
@@ -713,14 +905,20 @@ function displayJobMetrics(metrics) {
             chartData.trainBoxLoss = [...metricsData.train_loss];
             chartData.valBoxLoss = [...metricsData.val_loss];
             chartData.map50 = [...metricsData.map50];
-            // Fill in zeros for losses we don't have
+            
+            // Use precision/recall/lr if available, otherwise fill with zeros
+            chartData.precision = metricsData.precision && Array.isArray(metricsData.precision) ? 
+                [...metricsData.precision] : new Array(metricsData.train_loss.length).fill(0);
+            chartData.recall = metricsData.recall && Array.isArray(metricsData.recall) ? 
+                [...metricsData.recall] : new Array(metricsData.train_loss.length).fill(0);
+            chartData.lr = metricsData.lr && Array.isArray(metricsData.lr) ? 
+                [...metricsData.lr] : new Array(metricsData.train_loss.length).fill(0.01);
+            
+            // Fill in zeros for losses we don't have (class/dfl losses not in HF Jobs results)
             chartData.trainClsLoss = new Array(metricsData.train_loss.length).fill(0);
             chartData.trainDflLoss = new Array(metricsData.train_loss.length).fill(0);
             chartData.valClsLoss = new Array(metricsData.train_loss.length).fill(0);
             chartData.valDflLoss = new Array(metricsData.train_loss.length).fill(0);
-            chartData.precision = new Array(metricsData.train_loss.length).fill(0);
-            chartData.recall = new Array(metricsData.train_loss.length).fill(0);
-            chartData.lr = new Array(metricsData.train_loss.length).fill(0.01);
         }
         
         updateCharts();

@@ -40,11 +40,10 @@
         <!-- Metrics Display -->
         <div style="background: rgba(124, 58, 237, 0.05); border: 1px solid rgba(124, 58, 237, 0.2); border-radius: 0.75rem; padding: 1.5rem;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                <h3 style="font-size: 1rem; margin: 0;">Metrics</h3>
-                <div style="font-size: 0.75rem; color: var(--text-secondary);">
-                    <span style="margin-right: 1rem;">Valid Set</span>
-                    <span>External</span>
-                </div>
+                <h3 style="font-size: 1rem; margin: 0;">Test Set Metrics</h3>
+                <button id="reEvaluateBtn" class="btn btn-secondary" onclick="reEvaluateModel()" style="font-size: 0.875rem; padding: 0.5rem 1rem;">
+                    🔄 Re-evaluate on Test Set
+                </button>
             </div>
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 2rem;">
                 <div style="text-align: center;">

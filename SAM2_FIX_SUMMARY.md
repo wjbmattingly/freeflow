@@ -325,3 +325,4 @@ polygon_points = db.Column(db.Text)  # JSON string
 **Server**: Restarted with updated code  
 **Ready for**: SAM2 model download and testing
 
+

@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>HF Jobs UI Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; max-width: 800px; margin: 0 auto; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        select, input { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; }
+        .help-text { font-size: 0.875rem; color: #666; margin-top: 5px; }
+        #hfJobsConfig { border: 2px solid #4CAF50; padding: 20px; margin-top: 20px; background: #f9f9f9; }
+    </style>
+</head>
+<body>
+    <h1>HF Jobs UI Test Page</h1>
+    <p>This page tests if the HF Jobs UI elements work correctly.</p>
+
+    <div class="form-group">
+        <label>Training Location</label>
+        <select id="trainingLocation">
+            <option value="local">Local Machine</option>
+            <option value="huggingface">Hugging Face Jobs</option>
+        </select>
+        <p class="help-text">Choose where to run your training</p>
+    </div>
+
+    <div id="hfJobsConfig" style="display: none;">
+        <h3>✅ HF Jobs Configuration Visible!</h3>
+        
+        <div class="form-group">
+            <label>Hugging Face Username</label>
+            <input type="text" id="hfUsername" placeholder="e.g., your-username">
+            <p class="help-text">Your Hugging Face username</p>
+        </div>
+
+        <div class="form-group">
+            <label>Hugging Face API Key</label>
+            <input type="password" id="hfApiKey" placeholder="hf_...">
+            <p class="help-text">Get your API key from <a href="https://huggingface.co/settings/tokens" target="_blank">huggingface.co/settings/tokens</a></p>
+        </div>
+
+        <div class="form-group">
+            <label>Hardware</label>
+            <select id="hfHardware">
+                <optgroup label="CPU">
+                    <option value="cpu-basic">CPU Basic</option>
+                    <option value="cpu-upgrade">CPU Upgrade</option>
+                </optgroup>
+                <optgroup label="GPU">
+                    <option value="t4-small" selected>T4 Small (Recommended)</option>
+                    <option value="t4-medium">T4 Medium</option>
+                    <option value="l4x1">L4 x1</option>
+                    <option value="l4x4">L4 x4</option>
+                    <option value="a10g-small">A10G Small</option>
+                    <option value="a10g-large">A10G Large</option>
+                    <option value="a10g-largex2">A10G Large x2</option>
+                    <option value="a10g-largex4">A10G Large x4</option>
+                    <option value="a100-large">A100 Large</option>
+                </optgroup>
+                <optgroup label="TPU">
+                    <option value="v5e-1x1">TPU v5e-1x1</option>
+                    <option value="v5e-2x2">TPU v5e-2x2</option>
+                    <option value="v5e-2x4">TPU v5e-2x4</option>
+                </optgroup>
+            </select>
+            <p class="help-text">Select hardware for your training job</p>
+        </div>
+    </div>
+
+    <div id="status" style="margin-top: 30px; padding: 15px; background: #f0f0f0; border-radius: 5px;">
+        <strong>Status:</strong> <span id="statusText">Page loaded. Waiting for dropdown change...</span>
+    </div>
+
+    <script>
+        console.log('🚀 Test page loaded');
+
+        function setupHFJobsUI() {
+            const trainingLocation = document.getElementById('trainingLocation');
+            const hfJobsConfig = document.getElementById('hfJobsConfig');
+            const hfUsername = document.getElementById('hfUsername');
+            const hfApiKey = document.getElementById('hfApiKey');
+            const statusText = document.getElementById('statusText');
+            
+            // Check if elements exist
+            if (!trainingLocation || !hfJobsConfig || !hfUsername || !hfApiKey) {
+                console.error('❌ HF Jobs UI elements not found:', {
+                    trainingLocation: !!trainingLocation,
+                    hfJobsConfig: !!hfJobsConfig,
+                    hfUsername: !!hfUsername,
+                    hfApiKey: !!hfApiKey
+                });
+                statusText.textContent = 'ERROR: Elements not found! Check console.';
+                statusText.style.color = 'red';
+                return;
+            }
+            
+            console.log('✅ All elements found');
+            statusText.textContent = 'All elements found. Select "Hugging Face Jobs" from dropdown.';
+            statusText.style.color = 'green';
+            
+            // Toggle HF Jobs config visibility
+            trainingLocation.addEventListener('change', (e) => {
+                console.log('Training location changed to:', e.target.value);
+                if (e.target.value === 'huggingface') {
+                    hfJobsConfig.style.display = 'block';
+                    statusText.textContent = '✅ HF Jobs config is now visible!';
+                    statusText.style.color = 'green';
+                    console.log('✅ Showing HF Jobs config');
+                } else {
+                    hfJobsConfig.style.display = 'none';
+                    statusText.textContent = 'HF Jobs config hidden. Select "Hugging Face Jobs" to show it.';
+                    statusText.style.color = 'blue';
+                    console.log('✅ Hiding HF Jobs config');
+                }
+            });
+            
+            console.log('✅ HF Jobs UI setup complete');
+        }
+
+        // Run setup when DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', setupHFJobsUI);
+        } else {
+            setupHFJobsUI();
+        }
+    </script>
+</body>
+</html>
+

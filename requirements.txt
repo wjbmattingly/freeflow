@@ -19,3 +19,4 @@ PyYAML
 git+https://github.com/facebookresearch/segment-anything-2.git
 shapely
 scipy
+huggingface_hub

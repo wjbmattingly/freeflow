@@ -163,7 +163,10 @@ def train_yolo_model(job_id, socketio):
                 'train_loss': [],
                 'val_loss': [],
                 'map50': [],
-                'map50_95': []
+                'map50_95': [],
+                'precision': [],
+                'recall': [],
+                'lr': []
             }
             
             # Read metrics from results
@@ -182,6 +185,15 @@ def train_yolo_model(job_id, socketio):
                         metrics_data['val_loss'].append(float(row['val/box_loss']) if 'val/box_loss' in row else 0)
                         metrics_data['map50'].append(float(row['metrics/mAP50(B)']) if 'metrics/mAP50(B)' in row else 0)
                         metrics_data['map50_95'].append(float(row['metrics/mAP50-95(B)']) if 'metrics/mAP50-95(B)' in row else 0)
+                        metrics_data['precision'].append(float(row['metrics/precision(B)']) if 'metrics/precision(B)' in row else 0)
+                        metrics_data['recall'].append(float(row['metrics/recall(B)']) if 'metrics/recall(B)' in row else 0)
+                        # Learning rate
+                        lr_val = 0
+                        if 'lr/pg0' in row:
+                            lr_val = float(row['lr/pg0'])
+                        elif 'lr/pg1' in row:
+                            lr_val = float(row['lr/pg1'])
+                        metrics_data['lr'].append(lr_val)
                     
                     print(f"📊 Saved {len(metrics_data['epochs'])} epochs of metrics data")
             
@@ -285,7 +297,7 @@ def train_yolo_model(job_id, socketio):
                 'error': str(e)
             })
 
-def prepare_yolo_dataset(project, job):
+def prepare_yolo_dataset(project, job, for_hf_jobs=False):
     """Prepare dataset in YOLO format"""
     dataset_path = os.path.join('datasets', str(project.id), f'job_{job.id}')
     
@@ -349,8 +361,10 @@ def prepare_yolo_dataset(project, job):
                     f.write(f"{class_idx} {ann.x_center} {ann.y_center} {ann.width} {ann.height}\n")
     
     # Create data.yaml
+    # Use relative path for HF Jobs (they download to 'dataset' folder)
+    # Use absolute path for local training
     data_yaml = {
-        'path': os.path.abspath(dataset_path),
+        'path': '.' if for_hf_jobs else os.path.abspath(dataset_path),
         'train': 'images/train',
         'val': 'images/val',
         'test': 'images/test',
@@ -375,4 +389,380 @@ def prepare_yolo_dataset(project, job):
     print(f"{'='*60}\n")
     
     return dataset_path
+
+def train_yolo_model_hf_jobs(job_id, hf_api_key, socketio):
+    """Train YOLO model on Hugging Face Jobs using UV script"""
+    print(f"\n{'='*60}")
+    print(f"🚀 STARTING HF JOBS TRAINING FOR JOB #{job_id}")
+    print(f"{'='*60}\n")
+    
+    from app import app
+    from huggingface_hub import HfApi, run_uv_job, inspect_job
+    
+    with app.app_context():
+        job = TrainingJob.query.get(job_id)
+        if not job:
+            print(f"❌ Job #{job_id} not found!")
+            return
+        
+        print(f"✅ Job found: #{job.id}")
+        print(f"   Name: {job.name}")
+        print(f"   Project: {job.project.name}")
+        print(f"   HF Username: {job.hf_username}")
+        print(f"   Hardware: {job.hf_hardware}")
+        
+        project = job.project
+        
+        try:
+            job.status = 'training'
+            job.started_at = datetime.utcnow()
+            db.session.commit()
+            print(f"✅ Job status updated to 'training'")
+            
+            socketio.emit('training_update', {
+                'job_id': job.id,
+                'status': 'training',
+                'message': 'Preparing dataset for Hugging Face Jobs...'
+            })
+            
+            # Prepare dataset
+            print(f"📦 Preparing dataset...")
+            dataset_path = prepare_yolo_dataset(project, job, for_hf_jobs=True)
+            print(f"✅ Dataset prepared at: {dataset_path}")
+            
+            # Upload dataset to HF Hub as a proper dataset
+            print(f"📤 Uploading dataset to Hugging Face Hub...")
+            api = HfApi(token=hf_api_key)
+            
+            # Create dataset repo
+            dataset_repo_id = f"{job.hf_username}/freeflow-dataset-{project.id}-job{job.id}"
+            
+            try:
+                api.create_repo(
+                    repo_id=dataset_repo_id,
+                    repo_type="dataset",
+                    private=True,
+                    exist_ok=True
+                )
+                print(f"✅ Created dataset repo: {dataset_repo_id}")
+            except Exception as e:
+                print(f"⚠️  Dataset repo creation: {e}")
+            
+            # Upload entire dataset folder
+            api.upload_folder(
+                folder_path=dataset_path,
+                repo_id=dataset_repo_id,
+                repo_type="dataset",
+                ignore_patterns=["*.pyc", "__pycache__"]
+            )
+            print(f"✅ Dataset uploaded to {dataset_repo_id}")
+            
+            socketio.emit('training_update', {
+                'job_id': job.id,
+                'status': 'training',
+                'message': f'Dataset uploaded. Starting HF Jobs training...'
+            })
+            
+            # Get UV script path
+            script_path = os.path.join(os.path.dirname(__file__), 'yolo_train_hf.py')
+            if not os.path.exists(script_path):
+                raise FileNotFoundError(f"UV script not found at {script_path}")
+            
+            # Create output model repo name
+            model_repo_id = f"{job.hf_username}/freeflow-model-{project.id}-job{job.id}"
+            
+            # Prepare UV job arguments
+            model_size = job.model_size or 'n'
+            
+            uv_args = [
+                dataset_repo_id,  # input dataset
+                model_repo_id,    # output model repo
+                "--model-size", model_size,
+                "--epochs", str(job.epochs),
+                "--batch-size", str(job.batch_size),
+                "--image-size", str(job.image_size),
+                "--private"  # Keep model private
+            ]
+            
+            print(f"🚀 Starting HF UV Job...")
+            print(f"   Script: yolo_train_hf.py")
+            print(f"   Dataset: {dataset_repo_id}")
+            print(f"   Model Output: {model_repo_id}")
+            print(f"   Args: {' '.join(uv_args)}")
+            
+            # Start HF UV Job
+            hf_job_info = run_uv_job(
+                script_path,
+                script_args=uv_args,
+                flavor=job.hf_hardware or "t4-small",
+                namespace=job.hf_username,
+                secrets={"HF_TOKEN": hf_api_key},
+                timeout="3h"  # Longer timeout for training
+            )
+            
+            # Save HF job ID and model repo
+            job.hf_job_id = hf_job_info.id
+            job.model_path = f"hf://{model_repo_id}/best.pt"  # Store HF Hub path
+            db.session.commit()
+            
+            print(f"✅ HF Job started: {hf_job_info.id}")
+            print(f"   URL: {hf_job_info.url}")
+            print(f"   Dataset: https://huggingface.co/datasets/{dataset_repo_id}")
+            print(f"   Model will be at: https://huggingface.co/{model_repo_id}")
+            
+            socketio.emit('training_update', {
+                'job_id': job.id,
+                'status': 'training',
+                'message': f'Training on HF Jobs: {hf_job_info.url}'
+            })
+            
+            # Monitor HF Job
+            import time
+            start_time = time.time()
+            
+            print(f"📊 Monitoring HF Job: {hf_job_info.url}")
+            print(f"⚠️  Note: Real-time training metrics are not available for HF Jobs.")
+            print(f"   Charts will be populated when training completes and results are downloaded.")
+            
+            while True:
+                time.sleep(15)  # Check every 15 seconds
+                
+                hf_job_status = inspect_job(job_id=hf_job_info.id)
+                elapsed_time = int((time.time() - start_time) / 60)  # minutes
+                print(f"📊 HF Job status: {hf_job_status.status.stage} (elapsed: {elapsed_time}m)")
+                
+                # Send status update with elapsed time
+                status_message = f'Training on HF Jobs: {hf_job_status.status.stage}'
+                if elapsed_time > 0:
+                    status_message += f' ({elapsed_time} min)'
+                
+                socketio.emit('training_update', {
+                    'job_id': job.id,
+                    'status': 'training',
+                    'message': status_message
+                })
+                
+                if hf_job_status.status.stage == "COMPLETED":
+                    print(f"✅ HF Job completed!")
+                    
+                    # Download trained model from HF Hub
+                    print(f"📥 Downloading trained model from {model_repo_id}...")
+                    socketio.emit('training_update', {
+                        'job_id': job.id,
+                        'status': 'downloading',
+                        'message': 'Downloading trained model from HF Hub...'
+                    })
+                    
+                    try:
+                        # Create local directory for the model
+                        local_model_dir = os.path.join('training_runs', str(project.id), f'job_{job.id}')
+                        os.makedirs(os.path.join(local_model_dir, 'weights'), exist_ok=True)
+                        
+                        # Download model files
+                        model_files = ['best.pt', 'results.csv', 'results.png', 'args.yaml']
+                        for file in model_files:
+                            try:
+                                local_path = api.hf_hub_download(
+                                    repo_id=model_repo_id,
+                                    filename=file,
+                                    repo_type="model"
+                                )
+                                # Copy to training_runs directory
+                                if file == 'best.pt':
+                                    dest = os.path.join(local_model_dir, 'weights', file)
+                                else:
+                                    dest = os.path.join(local_model_dir, file)
+                                shutil.copy(local_path, dest)
+                                print(f"✅ Downloaded {file}")
+                            except Exception as e:
+                                print(f"⚠️ Could not download {file}: {e}")
+                        
+                        # Update model path to local path
+                        local_model_path = os.path.join(local_model_dir, 'weights', 'best.pt')
+                        job.model_path = local_model_path
+                        
+                        # Parse results.csv for metrics
+                        results_csv = os.path.join(local_model_dir, 'results.csv')
+                        if os.path.exists(results_csv):
+                            print(f"📊 Parsing metrics from {results_csv}...")
+                            import pandas as pd
+                            df = pd.read_csv(results_csv)
+                            df.columns = df.columns.str.strip()
+                            
+                            print(f"📊 CSV columns: {list(df.columns)}")
+                            print(f"📊 CSV shape: {df.shape}")
+                            
+                            metrics_data = {
+                                'epochs': [],
+                                'train_loss': [],
+                                'val_loss': [],
+                                'map50': [],
+                                'map50_95': [],
+                                'precision': [],
+                                'recall': [],
+                                'lr': []
+                            }
+                            
+                            for idx, row in df.iterrows():
+                                metrics_data['epochs'].append(int(row['epoch']) if 'epoch' in row else idx + 1)
+                                metrics_data['train_loss'].append(float(row['train/box_loss']) if 'train/box_loss' in row else 0)
+                                metrics_data['val_loss'].append(float(row['val/box_loss']) if 'val/box_loss' in row else 0)
+                                metrics_data['map50'].append(float(row['metrics/mAP50(B)']) if 'metrics/mAP50(B)' in row else 0)
+                                metrics_data['map50_95'].append(float(row['metrics/mAP50-95(B)']) if 'metrics/mAP50-95(B)' in row else 0)
+                                metrics_data['precision'].append(float(row['metrics/precision(B)']) if 'metrics/precision(B)' in row else 0)
+                                metrics_data['recall'].append(float(row['metrics/recall(B)']) if 'metrics/recall(B)' in row else 0)
+                                # Learning rate columns vary: lr/pg0, lr/pg1, lr/pg2
+                                lr_val = 0
+                                if 'lr/pg0' in row:
+                                    lr_val = float(row['lr/pg0'])
+                                elif 'lr/pg1' in row:
+                                    lr_val = float(row['lr/pg1'])
+                                metrics_data['lr'].append(lr_val)
+                            
+                            job.metrics = json.dumps(metrics_data)
+                            print(f"✅ Parsed metrics from {len(metrics_data['epochs'])} epochs")
+                            print(f"📊 Sample metrics: epochs={metrics_data['epochs'][:3]}, train_loss={metrics_data['train_loss'][:3]}")
+                        else:
+                            print(f"⚠️ results.csv not found at {results_csv}")
+                        
+                        print(f"✅ Model downloaded to {local_model_path}")
+                        
+                        # Evaluate on test set
+                        print(f"\n📊 Evaluating model on test set...")
+                        socketio.emit('training_update', {
+                            'job_id': job.id,
+                            'status': 'evaluating',
+                            'message': 'Evaluating model on test set...'
+                        })
+                        
+                        try:
+                            from ultralytics import YOLO
+                            
+                            # Load the trained model
+                            trained_model = YOLO(local_model_path)
+                            
+                            # Run validation on test set
+                            test_results = trained_model.val(
+                                data=os.path.join(dataset_path, 'data.yaml'),
+                                split='test',
+                                verbose=False
+                            )
+                            
+                            # Extract metrics
+                            if test_results:
+                                job.test_map50 = float(test_results.box.map50) if hasattr(test_results.box, 'map50') else 0.0
+                                job.test_precision = float(test_results.box.mp) if hasattr(test_results.box, 'mp') else 0.0
+                                job.test_recall = float(test_results.box.mr) if hasattr(test_results.box, 'mr') else 0.0
+                                
+                                # Extract per-class metrics
+                                class_metrics = []
+                                if hasattr(test_results.box, 'maps') and hasattr(test_results.box, 'p') and hasattr(test_results.box, 'r'):
+                                    # maps: per-class mAP@50
+                                    # p: per-class precision
+                                    # r: per-class recall
+                                    maps = test_results.box.maps  # Per-class mAP@50
+                                    precisions = test_results.box.p  # Per-class precision
+                                    recalls = test_results.box.r  # Per-class recall
+                                    
+                                    # Get class names from project
+                                    ordered_classes = sorted(project.classes, key=lambda c: c.id)
+                                    
+                                    for idx, cls in enumerate(ordered_classes):
+                                        if idx < len(maps):
+                                            class_metrics.append({
+                                                'class': cls.name,
+                                                'map50': float(maps[idx]) if idx < len(maps) else 0.0,
+                                                'precision': float(precisions[idx]) if idx < len(precisions) else 0.0,
+                                                'recall': float(recalls[idx]) if idx < len(recalls) else 0.0
+                                            })
+                                    
+                                    job.class_metrics = json.dumps(class_metrics)
+                                    print(f"✅ Saved per-class metrics for {len(class_metrics)} classes")
+                                
+                                print(f"✅ Test Metrics:")
+                                print(f"   mAP@50: {job.test_map50:.1%}")
+                                print(f"   Precision: {job.test_precision:.1%}")
+                                print(f"   Recall: {job.test_recall:.1%}")
+                            else:
+                                print("⚠️ No test results available")
+                        except Exception as eval_error:
+                            print(f"⚠️ Test evaluation failed: {eval_error}")
+                            import traceback
+                            traceback.print_exc()
+                            # Don't fail the whole training if evaluation fails
+                            job.test_map50 = None
+                            job.test_precision = None
+                            job.test_recall = None
+                        
+                    except Exception as download_error:
+                        print(f"⚠️ Error downloading model: {download_error}")
+                        # Keep the HF Hub path as fallback
+                        job.model_path = f"hf://{model_repo_id}/best.pt"
+                    
+                    job.status = 'completed'
+                    job.completed_at = datetime.utcnow()
+                    
+                    # Log test metrics before commit
+                    print(f"📊 Test metrics before commit:")
+                    print(f"   test_map50: {job.test_map50}")
+                    print(f"   test_precision: {job.test_precision}")
+                    print(f"   test_recall: {job.test_recall}")
+                    
+                    db.session.commit()
+                    print(f"✅ Job committed to database")
+                    
+                    # Prepare completion data
+                    metrics_to_send = json.loads(job.metrics) if job.metrics else {}
+                    print(f"📊 Metrics to send: {list(metrics_to_send.keys()) if metrics_to_send else 'None'}")
+                    if metrics_to_send and 'epochs' in metrics_to_send:
+                        print(f"📊 Metrics epochs count: {len(metrics_to_send['epochs'])}")
+                    
+                    completion_data = {
+                        'job_id': job.id,
+                        'status': 'completed',
+                        'message': 'Training completed on HF Jobs!',
+                        'hf_job_url': hf_job_info.url,
+                        'model_path': job.model_path,
+                        'metrics': metrics_to_send,
+                        'test_metrics': {
+                            'map50': job.test_map50,
+                            'precision': job.test_precision,
+                            'recall': job.test_recall
+                        }
+                    }
+                    
+                    print(f"📤 Emitting training_complete with metrics: {bool(metrics_to_send)}")
+                    print(f"📊 Test metrics - mAP50: {job.test_map50}, Precision: {job.test_precision}, Recall: {job.test_recall}")
+                    socketio.emit('training_complete', completion_data)
+                    break
+                    
+                elif hf_job_status.status.stage in ["ERROR", "FAILED"]:
+                    print(f"❌ HF Job failed: {hf_job_status.status.message}")
+                    job.status = 'failed'
+                    job.error_message = hf_job_status.status.message or "HF Job failed"
+                    job.completed_at = datetime.utcnow()
+                    db.session.commit()
+                    
+                    socketio.emit('training_error', {
+                        'job_id': job.id,
+                        'status': 'failed',
+                        'error': job.error_message
+                    })
+                    break
+                    
+        except Exception as e:
+            print(f"❌ HF Jobs training failed: {e}")
+            import traceback
+            traceback.print_exc()
+            
+            job.status = 'failed'
+            job.error_message = str(e)
+            job.completed_at = datetime.utcnow()
+            db.session.commit()
+            
+            socketio.emit('training_error', {
+                'job_id': job.id,
+                'status': 'failed',
+                'error': str(e)
+            })
 

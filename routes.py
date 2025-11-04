@@ -119,6 +119,10 @@ def get_project(project_id):
                     'test_map50': job.test_map50,
                     'test_precision': job.test_precision,
                     'test_recall': job.test_recall,
+                    'is_hf_job': job.is_hf_job,
+                    'hf_job_id': job.hf_job_id,
+                    'hf_username': job.hf_username,
+                    'hf_hardware': job.hf_hardware,
                     'created_at': job.created_at.isoformat(),
                     'started_at': job.started_at.isoformat() if job.started_at else None,
                     'completed_at': job.completed_at.isoformat() if job.completed_at else None
@@ -935,6 +939,53 @@ def start_training(project_id):
         'message': 'Training started'
     }), 201
 
+def start_training_hf_jobs(project_id):
+    """Start YOLO model training on Hugging Face Jobs"""
+    from training import train_yolo_model_hf_jobs
+    
+    project = Project.query.get_or_404(project_id)
+    data = request.json
+    
+    # Get HF credentials
+    hf_username = data.get('hf_username')
+    hf_api_key = data.get('hf_api_key')
+    hf_hardware = data.get('hf_hardware', 't4-small')
+    
+    if not hf_username or not hf_api_key:
+        return jsonify({'error': 'Hugging Face credentials required'}), 400
+    
+    # Create training job
+    job = TrainingJob(
+        project_id=project_id,
+        name=data.get('name', f'Model {len(project.training_jobs) + 1}'),
+        model_size=data.get('model_size', 'm'),
+        dataset_version_id=data.get('dataset_version_id'),
+        epochs=data.get('epochs', 100),
+        batch_size=data.get('batch_size', 16),
+        image_size=data.get('image_size', 640),
+        status='pending',
+        is_hf_job=True,
+        hf_username=hf_username,
+        hf_hardware=hf_hardware
+    )
+    db.session.add(job)
+    db.session.commit()
+    
+    # Start training in background thread
+    thread = threading.Thread(
+        target=train_yolo_model_hf_jobs,
+        args=(job.id, hf_api_key, _socketio_instance)
+    )
+    thread.daemon = True
+    thread.start()
+    
+    return jsonify({
+        'job_id': job.id,
+        'message': 'HF Jobs training started',
+        'hf_username': hf_username,
+        'hf_hardware': hf_hardware
+    }), 201
+
 def get_training_job(job_id):
     """Get training job status"""
     job = TrainingJob.query.get_or_404(job_id)
@@ -1095,43 +1146,78 @@ def get_confusion_matrix_normalized(job_id):
     return send_file(matrix_path, mimetype='image/png')
 
 def evaluate_model_on_test(job_id):
-    """Retroactively evaluate a trained model on the test set"""
-    job = TrainingJob.query.get_or_404(job_id)
-    
-    # Check if model exists
-    if not job.model_path or not os.path.exists(job.model_path):
-        return jsonify({'error': 'Model file not found'}), 404
-    
-    # Check if already has test metrics
-    if job.test_map50 is not None:
-        return jsonify({'message': 'Model already has test metrics', 'test_metrics': {
-            'map50': job.test_map50,
-            'precision': job.test_precision,
-            'recall': job.test_recall
-        }})
-    
+    """Evaluate or re-evaluate a trained model on the test set"""
     try:
+        job = TrainingJob.query.get_or_404(job_id)
+        
+        print(f"\n{'='*60}")
+        print(f"🔄 Evaluate request for job #{job_id}")
+        print(f"   Model path: {job.model_path}")
+        print(f"   Model exists: {os.path.exists(job.model_path) if job.model_path else False}")
+        print(f"{'='*60}\n")
+        
+        # Check if model exists
+        if not job.model_path:
+            return jsonify({'error': 'Model path not set for this job'}), 404
+            
+        if not os.path.exists(job.model_path):
+            return jsonify({'error': f'Model file not found at: {job.model_path}'}), 404
+        
         from ultralytics import YOLO
         
-        # Get the dataset path
-        job_dir = os.path.dirname(os.path.dirname(job.model_path))
-        dataset_path = os.path.join(job_dir, '..', '..', 'datasets', f'project_{job.project_id}')
+        # Get the dataset path - try multiple possible locations
+        dataset_path = os.path.join('datasets', str(job.project_id), f'job_{job.id}')
+        data_yaml = os.path.join(dataset_path, 'data.yaml')
+        
+        print(f"🔍 Looking for dataset at: {data_yaml}")
+        print(f"   Dataset exists: {os.path.exists(data_yaml)}")
+        
+        # Fallback to old location if new one doesn't exist
+        if not os.path.exists(data_yaml):
+            job_dir = os.path.dirname(os.path.dirname(job.model_path))
+            dataset_path = os.path.join(job_dir, '..', '..', 'datasets', f'project_{job.project_id}')
+            data_yaml = os.path.join(dataset_path, 'data.yaml')
         
         # Check if dataset still exists
-        data_yaml = os.path.join(dataset_path, 'data.yaml')
         if not os.path.exists(data_yaml):
-            return jsonify({'error': 'Dataset no longer exists'}), 404
+            return jsonify({'error': 'Dataset no longer exists. Training dataset may have been cleaned up.'}), 404
         
         # Load model
+        print(f"{'='*60}")
+        print(f"🔄 {'RE-' if job.test_map50 is not None else ''}EVALUATING JOB #{job.id} ON TEST SET")
+        print(f"📊 Loading model from: {job.model_path}")
+        print(f"📊 Using dataset: {data_yaml}")
+        print(f"{'='*60}")
+        
+        # Fix data.yaml to use absolute path for local evaluation
+        import yaml
+        import tempfile
+        
+        with open(data_yaml, 'r') as f:
+            data_config = yaml.safe_load(f)
+        
+        # Update path to absolute path of the dataset directory
+        data_config['path'] = os.path.abspath(dataset_path)
+        
+        # Create a temporary data.yaml with absolute path
+        temp_yaml = tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False)
+        yaml.dump(data_config, temp_yaml)
+        temp_yaml.close()
+        
+        print(f"📊 Updated data.yaml path to: {data_config['path']}")
+        
         model = YOLO(job.model_path)
         
         # Run validation on test set
         print(f"🔍 Evaluating model {job.id} on test set...")
         test_results = model.val(
-            data=data_yaml,
+            data=temp_yaml.name,
             split='test',
             verbose=False
         )
+        
+        # Clean up temporary file
+        os.unlink(temp_yaml.name)
         
         # Extract and save metrics
         if test_results:

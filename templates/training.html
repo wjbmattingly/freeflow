@@ -16,6 +16,56 @@
             <p style="color: var(--text-secondary); font-size: 0.875rem; margin-bottom: 1rem;">
                 Using latest YOLOv11 architecture for state-of-the-art object detection
             </p>
+
+            <div class="form-group">
+                <label>Training Location</label>
+                <select id="trainingLocation" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--background); color: var(--text); cursor: pointer;">
+                    <option value="local">Local Machine</option>
+                    <option value="huggingface">Hugging Face Jobs</option>
+                </select>
+                <p class="help-text">Choose where to run your training</p>
+            </div>
+
+            <div id="hfJobsConfig" style="display: none;">
+                <div class="form-group">
+                    <label>Hugging Face Username</label>
+                    <input type="text" id="hfUsername" placeholder="e.g., your-username" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--background); color: var(--text);">
+                    <p class="help-text">Your Hugging Face username</p>
+                </div>
+
+                <div class="form-group">
+                    <label>Hugging Face API Key</label>
+                    <input type="password" id="hfApiKey" placeholder="hf_..." style="width: 100%; padding: 0.75rem; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--background); color: var(--text);">
+                    <p class="help-text">Get your API key from <a href="https://huggingface.co/settings/tokens" target="_blank" style="color: var(--primary-color);">huggingface.co/settings/tokens</a></p>
+                </div>
+
+                <div class="form-group">
+                    <label>Hardware</label>
+                    <select id="hfHardware" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--background); color: var(--text); cursor: pointer;">
+                        <optgroup label="CPU">
+                            <option value="cpu-basic">CPU Basic</option>
+                            <option value="cpu-upgrade">CPU Upgrade</option>
+                        </optgroup>
+                        <optgroup label="GPU">
+                            <option value="t4-small" selected>T4 Small (Recommended)</option>
+                            <option value="t4-medium">T4 Medium</option>
+                            <option value="l4x1">L4 x1</option>
+                            <option value="l4x4">L4 x4</option>
+                            <option value="a10g-small">A10G Small</option>
+                            <option value="a10g-large">A10G Large</option>
+                            <option value="a10g-largex2">A10G Large x2</option>
+                            <option value="a10g-largex4">A10G Large x4</option>
+                            <option value="a100-large">A100 Large</option>
+                        </optgroup>
+                        <optgroup label="TPU">
+                            <option value="v5e-1x1">TPU v5e-1x1</option>
+                            <option value="v5e-2x2">TPU v5e-2x2</option>
+                            <option value="v5e-2x4">TPU v5e-2x4</option>
+                        </optgroup>
+                    </select>
+                    <p class="help-text">Select hardware for your training job</p>
+                </div>
+            </div>
             
             <div class="form-group">
                 <label>Model Name</label>
@@ -156,6 +206,25 @@
                     <div class="chart-container">
                         <h3>Learning Rate</h3>
                         <canvas id="lrChart" style="max-height: 300px;"></canvas>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Test Metrics Section -->
+            <div id="testMetricsSection" style="display: none; margin-top: 1.5rem; padding: 1.5rem; background: var(--card-background); border: 1px solid var(--border); border-radius: 0.75rem;">
+                <h3 style="margin-bottom: 1rem; color: var(--text);">📊 Test Set Evaluation</h3>
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;">
+                    <div class="metric-card">
+                        <h4>Test mAP@50</h4>
+                        <p id="testMap50">-</p>
+                    </div>
+                    <div class="metric-card">
+                        <h4>Test Precision</h4>
+                        <p id="testPrecision">-</p>
+                    </div>
+                    <div class="metric-card">
+                        <h4>Test Recall</h4>
+                        <p id="testRecall">-</p>
                     </div>
                 </div>
             </div>
