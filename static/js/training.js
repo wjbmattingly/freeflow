@@ -248,10 +248,21 @@ async function startTraining() {
         const hfApiKey = document.getElementById('hfApiKey').value.trim();
         const hfHardware = document.getElementById('hfHardware').value;
         
+        console.log('🔍 Reading HF credentials:', {
+            hfUsername: hfUsername || '(empty)',
+            hfApiKey: hfApiKey ? '***' + hfApiKey.slice(-4) : '(empty)',
+            hfHardware
+        });
+        
         if (!hfUsername || !hfApiKey) {
             showToast('Please enter your Hugging Face username and API key', 'error');
             return;
         }
+        
+        // Save credentials to localStorage before training
+        localStorage.setItem('hf_username', hfUsername);
+        localStorage.setItem('hf_api_key', hfApiKey);
+        console.log('💾 Credentials saved to localStorage before training');
         
         console.log('🚀 Starting HF Jobs training with config:', { 
             modelName, 
