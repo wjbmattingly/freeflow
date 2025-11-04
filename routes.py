@@ -969,33 +969,32 @@ def start_training_hf_jobs(project_id):
     print(f"   API key from request: {'***' + hf_api_key[-4:] if hf_api_key and len(hf_api_key) > 4 else 'None'}")
     print(f"   Hardware: {hf_hardware}")
     
-    # If running in Space, use the Space's token
-    if is_space:
-        space_token = os.environ.get('HF_TOKEN')
-        if not space_token:
-            error_msg = 'Space HF_TOKEN not available. Please check Space settings.'
-            print(f"❌ {error_msg}")
-            return jsonify({'error': error_msg}), 400
-        
-        hf_api_key = space_token
-        # Get username from SPACE_AUTHOR, or use provided username
-        space_author = os.environ.get('SPACE_AUTHOR')
-        if space_author and hf_username != 'space':  # Don't override with SPACE_AUTHOR if we have a real username
-            hf_username = hf_username if hf_username else space_author
-        elif not hf_username or hf_username == 'space':
-            hf_username = space_author if space_author else 'user'
-        
-        print(f"✅ Using Space authentication")
-        print(f"   Username: {hf_username}")
-        print(f"   Token: ***{hf_api_key[-4:] if hf_api_key else 'None'}")
-    else:
-        # Running locally, require user to provide credentials
-        if not hf_username or not hf_api_key:
+    # Validate credentials
+    if not hf_username or not hf_api_key:
+        # Try to fall back to Space credentials only if in Space and no user credentials provided
+        if is_space:
+            space_token = os.environ.get('HF_TOKEN')
+            space_author = os.environ.get('SPACE_AUTHOR')
+            
+            if space_token and space_author:
+                hf_api_key = space_token
+                hf_username = space_author
+                print(f"✅ Using Space authentication (fallback)")
+                print(f"   Username: {hf_username}")
+                print(f"   Token: ***{hf_api_key[-4:] if hf_api_key else 'None'}")
+            else:
+                error_msg = 'Hugging Face credentials required. Please enter your username and API token.'
+                print(f"❌ {error_msg}")
+                return jsonify({'error': error_msg}), 400
+        else:
             error_msg = 'Hugging Face credentials required'
             print(f"❌ {error_msg}")
             return jsonify({'error': error_msg}), 400
+    else:
+        # User provided credentials - use them
         print(f"✅ Using user-provided credentials")
         print(f"   Username: {hf_username}")
+        print(f"   Token: ***{hf_api_key[-4:] if hf_api_key else 'None'}")
     
     # Create training job
     job = TrainingJob(

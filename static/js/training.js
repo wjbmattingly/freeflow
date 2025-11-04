@@ -164,35 +164,33 @@ function setupHFJobsUI() {
     console.log('✅ HF Jobs UI setup started');
     console.log(`📍 Running in HF Space: ${isSpace}`);
     
-    // If in Space, hide credentials (will use Space token)
+    // Always show credentials fields and add helpful info
     if (isSpace) {
-        const usernameGroup = hfUsername.closest('.form-group');
-        const apiKeyGroup = hfApiKey.closest('.form-group');
-        if (usernameGroup) {
-            usernameGroup.style.display = 'none';
-        }
-        if (apiKeyGroup) {
-            apiKeyGroup.style.display = 'none';
-        }
-        // Add info message
+        // Add info message for Spaces
         const infoDiv = document.createElement('div');
         infoDiv.style.cssText = 'padding: 1rem; background: rgba(124, 58, 237, 0.1); border: 1px solid rgba(124, 58, 237, 0.3); border-radius: 0.5rem; margin-bottom: 1rem; color: var(--text);';
-        infoDiv.innerHTML = '<p style="margin: 0;"><strong>ℹ️ Running in Hugging Face Space</strong><br>Authentication will use the Space\'s token automatically.</p>';
+        infoDiv.innerHTML = `
+            <p style="margin: 0; margin-bottom: 0.5rem;"><strong>ℹ️ Running in Hugging Face Space</strong></p>
+            <p style="margin: 0; font-size: 0.875rem;">Please enter your Hugging Face credentials to use HF Jobs.</p>
+            <p style="margin: 0.5rem 0 0 0; font-size: 0.875rem;">
+                Get your token from: <a href="https://huggingface.co/settings/tokens" target="_blank" style="color: var(--primary-color); text-decoration: underline;">huggingface.co/settings/tokens</a>
+            </p>
+        `;
         hfJobsConfig.insertBefore(infoDiv, hfJobsConfig.firstChild);
-        console.log('🚀 Space mode: Using automatic authentication');
-    } else {
-        // Load cached credentials for local use
-        const cachedUsername = localStorage.getItem('hf_username');
-        const cachedApiKey = localStorage.getItem('hf_api_key');
-        
-        if (cachedUsername) {
-            hfUsername.value = cachedUsername;
-            console.log('📝 Loaded cached HF username');
-        }
-        if (cachedApiKey) {
-            hfApiKey.value = cachedApiKey;
-            console.log('📝 Loaded cached HF API key');
-        }
+        console.log('🚀 Space mode: User credentials required');
+    }
+    
+    // Load cached credentials (works for both local and Spaces)
+    const cachedUsername = localStorage.getItem('hf_username');
+    const cachedApiKey = localStorage.getItem('hf_api_key');
+    
+    if (cachedUsername) {
+        hfUsername.value = cachedUsername;
+        console.log('📝 Loaded cached HF username');
+    }
+    if (cachedApiKey) {
+        hfApiKey.value = cachedApiKey;
+        console.log('📝 Loaded cached HF API key');
     }
     
     // Toggle HF Jobs config visibility
@@ -246,26 +244,13 @@ async function startTraining() {
     
     // Check HF credentials if using HF Jobs
     if (trainingLocation === 'huggingface') {
-        // Check if running in Hugging Face Space
-        const isSpace = window.location.hostname.includes('hf.space') || window.location.hostname.includes('huggingface.co');
-        
-        let hfUsername, hfApiKey;
+        const hfUsername = document.getElementById('hfUsername').value.trim();
+        const hfApiKey = document.getElementById('hfApiKey').value.trim();
         const hfHardware = document.getElementById('hfHardware').value;
         
-        if (isSpace) {
-            // In Space, use placeholder values (backend will use Space token)
-            hfUsername = 'space';
-            hfApiKey = 'space-token';
-            console.log('🚀 Using Space authentication');
-        } else {
-            // Local mode - require credentials
-            hfUsername = document.getElementById('hfUsername').value.trim();
-            hfApiKey = document.getElementById('hfApiKey').value.trim();
-            
-            if (!hfUsername || !hfApiKey) {
-                showToast('Please enter your Hugging Face username and API key', 'error');
-                return;
-            }
+        if (!hfUsername || !hfApiKey) {
+            showToast('Please enter your Hugging Face username and API key', 'error');
+            return;
         }
         
         console.log('🚀 Starting HF Jobs training with config:', { 
