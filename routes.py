@@ -950,24 +950,52 @@ def start_training_hf_jobs(project_id):
     # Check if running in Hugging Face Space
     is_space = 'SPACE_ID' in os.environ
     
-    # Get HF credentials
+    print(f"\n{'='*60}")
+    print(f"🚀 HF Jobs Training Request")
+    print(f"   Running in Space: {is_space}")
+    if is_space:
+        print(f"   SPACE_ID: {os.environ.get('SPACE_ID', 'N/A')}")
+        print(f"   SPACE_AUTHOR: {os.environ.get('SPACE_AUTHOR', 'N/A')}")
+        print(f"   HF_TOKEN present: {bool(os.environ.get('HF_TOKEN'))}")
+    print(f"{'='*60}\n")
+    
+    # Get HF credentials from request
     hf_username = data.get('hf_username')
     hf_api_key = data.get('hf_api_key')
     hf_hardware = data.get('hf_hardware', 't4-small')
     
+    print(f"📋 Request data:")
+    print(f"   Username from request: {hf_username}")
+    print(f"   API key from request: {'***' + hf_api_key[-4:] if hf_api_key and len(hf_api_key) > 4 else 'None'}")
+    print(f"   Hardware: {hf_hardware}")
+    
     # If running in Space, use the Space's token
     if is_space:
-        hf_api_key = os.environ.get('HF_TOKEN')
-        if not hf_api_key:
-            return jsonify({'error': 'Space HF_TOKEN not available'}), 400
-        print(f"🚀 Running in HF Space, using Space token")
-        # In Spaces, we can get username from SPACE_AUTHOR or use the provided one
-        if not hf_username:
-            hf_username = os.environ.get('SPACE_AUTHOR', 'user')
+        space_token = os.environ.get('HF_TOKEN')
+        if not space_token:
+            error_msg = 'Space HF_TOKEN not available. Please check Space settings.'
+            print(f"❌ {error_msg}")
+            return jsonify({'error': error_msg}), 400
+        
+        hf_api_key = space_token
+        # Get username from SPACE_AUTHOR, or use provided username
+        space_author = os.environ.get('SPACE_AUTHOR')
+        if space_author and hf_username != 'space':  # Don't override with SPACE_AUTHOR if we have a real username
+            hf_username = hf_username if hf_username else space_author
+        elif not hf_username or hf_username == 'space':
+            hf_username = space_author if space_author else 'user'
+        
+        print(f"✅ Using Space authentication")
+        print(f"   Username: {hf_username}")
+        print(f"   Token: ***{hf_api_key[-4:] if hf_api_key else 'None'}")
     else:
         # Running locally, require user to provide credentials
         if not hf_username or not hf_api_key:
-            return jsonify({'error': 'Hugging Face credentials required'}), 400
+            error_msg = 'Hugging Face credentials required'
+            print(f"❌ {error_msg}")
+            return jsonify({'error': error_msg}), 400
+        print(f"✅ Using user-provided credentials")
+        print(f"   Username: {hf_username}")
     
     # Create training job
     job = TrainingJob(
