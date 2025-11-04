@@ -432,12 +432,20 @@ def train_yolo_model_hf_jobs(job_id, hf_api_key, socketio):
             
             # Upload dataset to HF Hub as a proper dataset
             print(f"📤 Uploading dataset to Hugging Face Hub...")
+            
+            # Validate token format
+            if not hf_api_key or not hf_api_key.startswith('hf_'):
+                raise ValueError(f"Invalid HF token format. Token should start with 'hf_'. Got: {hf_api_key[:10] if hf_api_key else 'None'}...")
+            
+            print(f"🔐 Creating HfApi with token: ***{hf_api_key[-4:]}")
             api = HfApi(token=hf_api_key)
             
             # Create dataset repo
             dataset_repo_id = f"{job.hf_username}/freeflow-dataset-{project.id}-job{job.id}"
+            print(f"📦 Dataset repo ID: {dataset_repo_id}")
             
             try:
+                print(f"🔨 Creating dataset repo...")
                 api.create_repo(
                     repo_id=dataset_repo_id,
                     repo_type="dataset",
@@ -446,16 +454,23 @@ def train_yolo_model_hf_jobs(job_id, hf_api_key, socketio):
                 )
                 print(f"✅ Created dataset repo: {dataset_repo_id}")
             except Exception as e:
-                print(f"⚠️  Dataset repo creation: {e}")
+                print(f"❌ Dataset repo creation failed: {e}")
+                print(f"   This might happen if the repo already exists and you don't have permission")
+                # Don't raise - try to continue with upload
             
             # Upload entire dataset folder
-            api.upload_folder(
-                folder_path=dataset_path,
-                repo_id=dataset_repo_id,
-                repo_type="dataset",
-                ignore_patterns=["*.pyc", "__pycache__"]
-            )
-            print(f"✅ Dataset uploaded to {dataset_repo_id}")
+            print(f"📤 Uploading dataset folder to {dataset_repo_id}...")
+            try:
+                api.upload_folder(
+                    folder_path=dataset_path,
+                    repo_id=dataset_repo_id,
+                    repo_type="dataset",
+                    ignore_patterns=["*.pyc", "__pycache__"]
+                )
+                print(f"✅ Dataset uploaded to {dataset_repo_id}")
+            except Exception as e:
+                print(f"❌ Dataset upload failed: {e}")
+                raise  # This is critical, so raise the exception
             
             socketio.emit('training_update', {
                 'job_id': job.id,
