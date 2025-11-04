@@ -942,17 +942,32 @@ def start_training(project_id):
 def start_training_hf_jobs(project_id):
     """Start YOLO model training on Hugging Face Jobs"""
     from training import train_yolo_model_hf_jobs
+    import os
     
     project = Project.query.get_or_404(project_id)
     data = request.json
+    
+    # Check if running in Hugging Face Space
+    is_space = 'SPACE_ID' in os.environ
     
     # Get HF credentials
     hf_username = data.get('hf_username')
     hf_api_key = data.get('hf_api_key')
     hf_hardware = data.get('hf_hardware', 't4-small')
     
-    if not hf_username or not hf_api_key:
-        return jsonify({'error': 'Hugging Face credentials required'}), 400
+    # If running in Space, use the Space's token
+    if is_space:
+        hf_api_key = os.environ.get('HF_TOKEN')
+        if not hf_api_key:
+            return jsonify({'error': 'Space HF_TOKEN not available'}), 400
+        print(f"🚀 Running in HF Space, using Space token")
+        # In Spaces, we can get username from SPACE_AUTHOR or use the provided one
+        if not hf_username:
+            hf_username = os.environ.get('SPACE_AUTHOR', 'user')
+    else:
+        # Running locally, require user to provide credentials
+        if not hf_username or not hf_api_key:
+            return jsonify({'error': 'Hugging Face credentials required'}), 400
     
     # Create training job
     job = TrainingJob(
