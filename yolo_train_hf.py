@@ -136,7 +136,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def download_dataset(dataset_repo: str) -> Path:
+def download_dataset(dataset_repo: str, token: str = None) -> Path:
     """Download YOLO dataset from HuggingFace Hub"""
     print(f"📥 Downloading dataset from {dataset_repo}...")
     
@@ -144,7 +144,8 @@ def download_dataset(dataset_repo: str) -> Path:
     dataset_path = snapshot_download(
         repo_id=dataset_repo,
         repo_type="dataset",
-        local_dir="dataset"
+        local_dir="dataset",
+        token=token
     )
     
     dataset_path = Path(dataset_path)
@@ -227,12 +228,13 @@ def upload_model(
     output_repo: str,
     model_size: str,
     epochs: int,
-    private: bool
+    private: bool,
+    token: str = None
 ):
     """Upload trained model to HuggingFace Hub"""
     print(f"\n📤 Uploading model to {output_repo}...")
     
-    api = HfApi()
+    api = HfApi(token=token)
     
     # Create repo
     try:
@@ -327,16 +329,22 @@ def main():
     print(f"Model: YOLO11-{args.model_size.upper()}")
     print("="*60)
     
+    # Get HF token
+    hf_token = os.environ.get("HF_TOKEN")
+    if not hf_token:
+        print("❌ HF_TOKEN not found in environment!")
+        print("   Token is required for downloading datasets and uploading models")
+        sys.exit(1)
+    
     # Login to HuggingFace
-    if "HF_TOKEN" in os.environ:
-        login(token=os.environ["HF_TOKEN"])
-        print("✅ Logged in to HuggingFace")
-    else:
-        print("⚠️  HF_TOKEN not found, using cached credentials")
+    print(f"🔐 Authenticating with HuggingFace...")
+    print(f"   Token: ***{hf_token[-4:] if len(hf_token) > 4 else '***'}")
+    login(token=hf_token)
+    print("✅ Logged in to HuggingFace")
     
     try:
         # Download dataset
-        dataset_path = download_dataset(args.dataset_repo)
+        dataset_path = download_dataset(args.dataset_repo, token=hf_token)
         
         # Train model
         model_path = train_yolo(
@@ -354,7 +362,8 @@ def main():
             output_repo=args.output_repo,
             model_size=args.model_size,
             epochs=args.epochs,
-            private=args.private
+            private=args.private,
+            token=hf_token
         )
         
         print("\n" + "="*60)
