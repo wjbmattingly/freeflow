@@ -397,7 +397,7 @@ def train_yolo_model_hf_jobs(job_id, hf_api_key, socketio):
     print(f"{'='*60}\n")
     
     from app import app
-    from huggingface_hub import HfApi, run_uv_job, inspect_job
+    from huggingface_hub import HfApi, inspect_job
     
     with app.app_context():
         job = TrainingJob.query.get(job_id)
@@ -491,7 +491,7 @@ def train_yolo_model_hf_jobs(job_id, hf_api_key, socketio):
             print(f"   Args: {' '.join(uv_args)}")
             
             # Start HF UV Job
-            hf_job_info = run_uv_job(
+            hf_job_info = api.run_uv_job(
                 script_path,
                 script_args=uv_args,
                 flavor=job.hf_hardware or "t4-small",
