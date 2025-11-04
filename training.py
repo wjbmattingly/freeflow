@@ -527,7 +527,7 @@ def train_yolo_model_hf_jobs(job_id, hf_api_key, socketio):
             while True:
                 time.sleep(15)  # Check every 15 seconds
                 
-                hf_job_status = inspect_job(job_id=hf_job_info.id)
+                hf_job_status = inspect_job(job_id=hf_job_info.id, token=hf_api_key)
                 elapsed_time = int((time.time() - start_time) / 60)  # minutes
                 print(f"📊 HF Job status: {hf_job_status.status.stage} (elapsed: {elapsed_time}m)")
                 
