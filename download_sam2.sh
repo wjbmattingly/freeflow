@@ -52,3 +52,4 @@ echo ""
 echo "You can now use SAM2 for instance segmentation!"
 
 
+

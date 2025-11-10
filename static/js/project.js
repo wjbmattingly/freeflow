@@ -760,10 +760,10 @@ function closeUploadModal() {
 function setupUploadArea() {
     const uploadArea = document.getElementById('uploadArea');
     const fileInput = document.getElementById('fileInput');
+    const directoryInput = document.getElementById('directoryInput');
     
-    uploadArea.addEventListener('click', () => {
-        fileInput.click();
-    });
+    // Don't trigger file input on upload area click anymore
+    // Users will use the buttons instead
     
     uploadArea.addEventListener('dragover', (e) => {
         e.preventDefault();
@@ -774,42 +774,178 @@ function setupUploadArea() {
         uploadArea.style.borderColor = 'var(--border)';
     });
     
-    uploadArea.addEventListener('drop', (e) => {
+    uploadArea.addEventListener('drop', async (e) => {
         e.preventDefault();
         uploadArea.style.borderColor = 'var(--border)';
-        handleFiles(e.dataTransfer.files);
+        
+        // Handle both files and directories from drag-and-drop
+        const items = e.dataTransfer.items;
+        if (items) {
+            const files = [];
+            
+            // Process all dropped items (files and folders)
+            for (let i = 0; i < items.length; i++) {
+                const item = items[i];
+                if (item.kind === 'file') {
+                    const entry = item.webkitGetAsEntry();
+                    if (entry) {
+                        await traverseFileTree(entry, files);
+                    }
+                }
+            }
+            
+            if (files.length > 0) {
+                // Convert to FileList-like array
+                handleFiles(files);
+            }
+        } else {
+            // Fallback for browsers without DataTransferItemList
+            handleFiles(e.dataTransfer.files);
+        }
     });
 }
 
-async function handleFiles(files) {
-    const formData = new FormData();
+// Helper function to traverse directory trees
+async function traverseFileTree(item, files) {
+    return new Promise((resolve) => {
+        if (item.isFile) {
+            item.file((file) => {
+                // Filter for image and PDF files
+                const ext = file.name.split('.').pop().toLowerCase();
+                if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'tiff', 'tif', 'pdf'].includes(ext)) {
+                    files.push(file);
+                }
+                resolve();
+            });
+        } else if (item.isDirectory) {
+            const dirReader = item.createReader();
+            dirReader.readEntries(async (entries) => {
+                for (let i = 0; i < entries.length; i++) {
+                    await traverseFileTree(entries[i], files);
+                }
+                resolve();
+            });
+        }
+    });
+}
+
+// Function to select individual files
+function selectFiles() {
+    const fileInput = document.getElementById('fileInput');
+    fileInput.click();
+}
+
+// Function to select a directory
+function selectDirectory() {
+    const directoryInput = document.getElementById('directoryInput');
+    directoryInput.click();
+}
+
+// Upload files in batches to avoid overwhelming the server/browser
+async function uploadInBatches(filesArray, hasPDF) {
+    const BATCH_SIZE = 50;
+    const totalFiles = filesArray.length;
+    const totalBatches = Math.ceil(totalFiles / BATCH_SIZE);
     
-    // Check if any PDFs are being uploaded
-    let hasPDF = false;
-    for (let file of files) {
-        formData.append('files', file);
-        if (file.name.toLowerCase().endsWith('.pdf')) {
-            hasPDF = true;
+    const uploadProgress = document.getElementById('uploadProgress');
+    const uploadStatus = document.getElementById('uploadStatus');
+    const progressFill = document.getElementById('progressFill');
+    
+    let uploadedCount = 0;
+    let totalImagesUploaded = 0;
+    
+    for (let i = 0; i < totalBatches; i++) {
+        const start = i * BATCH_SIZE;
+        const end = Math.min(start + BATCH_SIZE, totalFiles);
+        const batch = filesArray.slice(start, end);
+        
+        console.log(`📤 Uploading batch ${i + 1}/${totalBatches} (${batch.length} files)`);
+        
+        const formData = new FormData();
+        for (let file of batch) {
+            formData.append('files', file);
+        }
+        
+        try {
+            uploadStatus.textContent = `Uploading batch ${i + 1}/${totalBatches} (${uploadedCount}/${totalFiles} files)...`;
+            
+            const response = await fetch(`/api/projects/${PROJECT_ID}/upload`, {
+                method: 'POST',
+                body: formData
+            });
+            
+            if (response.ok) {
+                const result = await response.json();
+                uploadedCount = end;
+                totalImagesUploaded += result.images.length;
+                
+                const percent = (uploadedCount / totalFiles) * 100;
+                progressFill.style.width = percent + '%';
+                
+                console.log(`✅ Batch ${i + 1}/${totalBatches} complete: ${result.images.length} images uploaded`);
+            } else {
+                const error = await response.json();
+                throw new Error(error.error || 'Upload failed');
+            }
+        } catch (error) {
+            console.error(`❌ Batch ${i + 1} failed:`, error);
+            showToast(`Upload failed at batch ${i + 1}: ${error.message}`, 'error');
+            uploadProgress.style.display = 'none';
+            return;
         }
     }
+    
+    // All batches complete
+    if (hasPDF) {
+        uploadStatus.textContent = 'All batches uploaded! Processing PDFs...';
+        // Socket will handle PDF processing updates
+    } else {
+        showToast(`Successfully uploaded ${totalImagesUploaded} images in ${totalBatches} batches!`, 'success');
+        closeUploadModal();
+        await loadImages();
+    }
+}
+
+async function handleFiles(files) {
+    const uploadProgress = document.getElementById('uploadProgress');
+    const uploadStatus = document.getElementById('uploadStatus');
+    const progressFill = document.getElementById('progressFill');
+    
+    uploadProgress.style.display = 'block';
+    
+    // Convert FileList to Array
+    const filesArray = Array.from(files);
+    const totalFiles = filesArray.length;
+    
+    console.log(`📦 Uploading ${totalFiles} files`);
+    
+    // Check if any PDFs are being uploaded
+    const hasPDF = filesArray.some(file => file.name.toLowerCase().endsWith('.pdf'));
     
     // Ensure socket is connected for PDF processing updates
     if (hasPDF) {
         if (!socket || !socket.connected) {
             console.log('🔌 Socket not connected, reconnecting for PDF processing...');
             setupSocketConnection();
-            // Wait a bit for socket to connect
             await new Promise(resolve => setTimeout(resolve, 500));
         } else {
             console.log('✅ Socket already connected for PDF processing');
         }
     }
     
-    const uploadProgress = document.getElementById('uploadProgress');
-    const uploadStatus = document.getElementById('uploadStatus');
-    const progressFill = document.getElementById('progressFill');
+    // If more than 50 files, upload in batches
+    const BATCH_SIZE = 50;
+    if (totalFiles > BATCH_SIZE) {
+        console.log(`📦 Large upload detected: ${totalFiles} files. Uploading in batches of ${BATCH_SIZE}...`);
+        await uploadInBatches(filesArray, hasPDF);
+        return;
+    }
     
-    uploadProgress.style.display = 'block';
+    // Single batch upload
+    const formData = new FormData();
+    for (let file of filesArray) {
+        formData.append('files', file);
+    }
     
     try {
         const xhr = new XMLHttpRequest();

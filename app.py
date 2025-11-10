@@ -32,7 +32,7 @@ db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance', '
 app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = 'uploads'
-app.config['MAX_CONTENT_LENGTH'] = 1000 * 1024 * 1024  # 1GB max file size
+app.config['MAX_CONTENT_LENGTH'] = 100000 * 1024 * 1024  # 10GB max file size
 
 # Ensure instance directory exists
 os.makedirs(os.path.dirname(db_path), exist_ok=True)
@@ -53,7 +53,7 @@ socketio = SocketIO(
     app, 
     cors_allowed_origins="*",
     cors_credentials=True,
-    max_http_buffer_size=1000 * 1024 * 1024,  # 1GB for large file uploads
+    max_http_buffer_size=100000 * 1024 * 1024,  # 10GB for large file uploads
     async_mode=async_mode,
     logger=True,
     engineio_logger=True,
@@ -156,7 +156,7 @@ def request_entity_too_large(error):
     from flask import jsonify
     return jsonify({
         'error': 'File too large',
-        'message': 'The uploaded file exceeds the maximum size limit of 1GB. Please try a smaller file.'
+        'message': 'The uploaded file exceeds the maximum size limit of 10GB. Please try a smaller file.'
     }), 413
 
 # Explicit static file route (helps with iframe context)
@@ -180,7 +180,7 @@ if __name__ == '__main__':
     
     # Get port from environment variable (for HuggingFace Spaces) or default to 5000
     import os
-    port = int(os.environ.get('PORT', 5000))
+    port = int(os.environ.get('PORT', 5005))
     host = os.environ.get('HOST', '127.0.0.1')
     
     # Disable debug mode to prevent reloader issues

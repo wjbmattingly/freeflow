@@ -407,13 +407,22 @@
             <button class="close-btn" onclick="closeUploadModal()">&times;</button>
         </div>
         <div class="modal-body">
+            <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+                <button onclick="selectFiles()" style="flex: 1; padding: 0.75rem; background: var(--primary-color); color: white; border: none; border-radius: 0.5rem; cursor: pointer; font-weight: 500;">
+                    📁 Select Files
+                </button>
+                <button onclick="selectDirectory()" style="flex: 1; padding: 0.75rem; background: var(--primary-color); color: white; border: none; border-radius: 0.5rem; cursor: pointer; font-weight: 500;">
+                    📂 Select Directory
+                </button>
+            </div>
             <div class="upload-area" id="uploadArea">
                 <input type="file" id="fileInput" multiple accept="image/*,.pdf" style="display: none;" onchange="handleFiles(this.files)">
+                <input type="file" id="directoryInput" webkitdirectory directory multiple style="display: none;" onchange="handleFiles(this.files)">
                 <div class="upload-prompt">
                     <svg width="48" height="48" viewBox="0 0 24 24" fill="none">
                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4m14-7l-5-5-5 5m5-5v12" stroke="currentColor" stroke-width="2"/>
                     </svg>
-                    <p>Drag and drop files here or click to browse</p>
+                    <p>Drag and drop files/folders here</p>
                     <p class="upload-hint">Supports: JPG, PNG, PDF, TIFF</p>
                 </div>
             </div>
