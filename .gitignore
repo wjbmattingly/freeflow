@@ -1,7 +1,10 @@
 models/sam2/
-yolo11*    
+models/sam/
+yolo11*
+yolo26*
 output_models/
 runs/
+.venv/
 # Python
 __pycache__/
 *.py[cod]

@@ -4,6 +4,7 @@ let canvas, ctx;
 let images = [];
 let allImages = [];
 let currentFilter = 'all'; // 'all', 'annotated', 'unannotated'
+let currentSortOrder = 'name-asc'; // Track current sort order
 let currentImageIndex = 0;
 let currentImage = null;
 let currentImageData = null; // Store image data (id, filename, etc)
@@ -100,6 +101,21 @@ async function loadImages() {
             allImages.push(...batch.images);
         });
         
+        // Check URL parameters for filter and sort order
+        const urlParams = new URLSearchParams(window.location.search);
+        const filterParam = urlParams.get('filter');
+        const sortParam = urlParams.get('sort');
+        
+        // Set filter from URL or use default
+        if (filterParam && ['all', 'annotated', 'unannotated'].includes(filterParam)) {
+            currentFilter = filterParam;
+        }
+        
+        // Set sort order from URL or use default
+        if (sortParam) {
+            currentSortOrder = sortParam;
+        }
+        
         // Apply filter
         if (currentFilter === 'all') {
             images = [...allImages];
@@ -109,13 +125,15 @@ async function loadImages() {
             images = allImages.filter(img => img.status !== 'completed');
         }
         
+        // Apply sorting (same logic as project page)
+        sortImages();
+        
         if (images.length === 0) {
             showToast(`No ${currentFilter} images to annotate`, 'error');
             return;
         }
         
         // Check if specific image ID is provided in URL
-        const urlParams = new URLSearchParams(window.location.search);
         const imageId = urlParams.get('image');
         
         if (imageId) {
@@ -142,6 +160,13 @@ async function loadImage(index) {
     currentImageIndex = index;
     const imageData = images[index];
     currentImageData = imageData; // Store the image data object
+    
+    // Update filename display
+    const filenameElement = document.getElementById('imageFilename');
+    if (filenameElement && imageData.filename) {
+        filenameElement.textContent = imageData.filename;
+        filenameElement.title = imageData.filename; // Full filename on hover
+    }
     
     try {
         // Load image annotations
@@ -181,6 +206,38 @@ async function loadImage(index) {
         updateImageCounter();
     } catch (error) {
         showToast('Failed to load image', 'error');
+    }
+}
+
+// Sort images based on current sort order (same logic as project page)
+function sortImages() {
+    switch (currentSortOrder) {
+        case 'name-asc':
+            images.sort((a, b) => a.filename.localeCompare(b.filename));
+            break;
+        case 'name-desc':
+            images.sort((a, b) => b.filename.localeCompare(a.filename));
+            break;
+        case 'date-newest':
+            images.sort((a, b) => new Date(b.uploaded_at || 0) - new Date(a.uploaded_at || 0));
+            break;
+        case 'date-oldest':
+            images.sort((a, b) => new Date(a.uploaded_at || 0) - new Date(b.uploaded_at || 0));
+            break;
+        case 'annotated-first':
+            images.sort((a, b) => {
+                const aAnnotated = a.status === 'completed' ? 1 : 0;
+                const bAnnotated = b.status === 'completed' ? 1 : 0;
+                return bAnnotated - aAnnotated;
+            });
+            break;
+        case 'unannotated-first':
+            images.sort((a, b) => {
+                const aAnnotated = a.status === 'completed' ? 1 : 0;
+                const bAnnotated = b.status === 'completed' ? 1 : 0;
+                return aAnnotated - bAnnotated;
+            });
+            break;
     }
 }
 
@@ -575,8 +632,13 @@ function drawCanvas() {
     // Draw image
     ctx.drawImage(currentImage, 0, 0, canvas.width, canvas.height);
     
-    // Draw annotations (with zoom/pan applied)
-    annotations.forEach((ann, index) => {
+    // Check if annotations should be visible
+    const showAnnotationsCheckbox = document.getElementById('showAnnotationsCheckbox');
+    const showAnnotations = !showAnnotationsCheckbox || showAnnotationsCheckbox.checked;
+    
+    // Draw annotations (with zoom/pan applied) only if checkbox is checked
+    if (showAnnotations) {
+        annotations.forEach((ann, index) => {
         const cls = classes.find(c => c.id === ann.class_id);
         if (!cls) return;
         
@@ -633,8 +695,9 @@ function drawCanvas() {
             }
         }
     });
+    } // End of showAnnotations check
     
-    // Draw current box
+    // Draw current box (always show the box being drawn)
     if (currentBox) {
         const cls = classes.find(c => c.id === selectedClassId);
         const x = (currentBox.x_center - currentBox.width / 2) * canvas.width;
@@ -1428,7 +1491,7 @@ function deleteAnnotation(annId) {
 
 
 // =======================================
-// SAM2 (Segment Anything 2) Integration
+// SAM (Segment Anything — SAM3 with SAM2.1 fallbacks) Integration
 // =======================================
 
 let sam2Enabled = false;
@@ -1567,9 +1630,9 @@ function toggleSAM2Mode() {
         if (sam2Models.length === 0) {
             loadSAM2Models();
         }
-        showToast('SAM2 Mode enabled', 'success');
+        showToast('SAM Mode enabled', 'success');
     } else {
-        showToast('SAM2 Mode disabled', 'info');
+        showToast('SAM Mode disabled', 'info');
         sam2PreviewPolygon = null;
         drawCanvas();
     }
@@ -1581,11 +1644,11 @@ function updateSAM2Mode() {
     drawCanvas();
     
     if (sam2Mode === 'hover') {
-        showToast('SAM2: Hover to preview segmentation', 'info');
+        showToast('SAM: Hover to preview segmentation', 'info');
     } else if (sam2Mode === 'box') {
-        showToast('SAM2: Draw box, then press S to convert', 'info');
+        showToast('SAM: Draw box, then press S to convert', 'info');
     } else if (sam2Mode === 'auto') {
-        showToast('SAM2: Draw box to auto-convert to polygon', 'info');
+        showToast('SAM: Draw box to auto-convert to polygon', 'info');
     }
 }
 
@@ -1627,9 +1690,9 @@ async function sam2PredictFromPoint(x, y) {
             if (response.status === 503 && result.message) {
                 // Model not downloaded - show one-time warning
                 if (!window.sam2ModelWarningShown) {
-                    showToast(`SAM2 not ready: ${result.message}. Run: ./download_sam2.sh`, 'error');
+                    showToast(`SAM not ready: ${result.message}. Run: ./download_sam.sh`, 'error');
                     window.sam2ModelWarningShown = true;
-                    console.error('SAM2 model not found:', result.instructions);
+                    console.error('SAM model not found:', result.instructions);
                 }
                 return null;
             }
@@ -1672,9 +1735,9 @@ async function sam2PredictFromBox(x_center, y_center, width, height) {
             if (response.status === 503 && result.message) {
                 // Model not downloaded - show one-time warning
                 if (!window.sam2ModelWarningShown) {
-                    showToast(`SAM2 not ready: ${result.message}. Run: ./download_sam2.sh`, 'error');
+                    showToast(`SAM not ready: ${result.message}. Run: ./download_sam.sh`, 'error');
                     window.sam2ModelWarningShown = true;
-                    console.error('SAM2 model not found:', result.instructions);
+                    console.error('SAM model not found:', result.instructions);
                 }
                 return null;
             }

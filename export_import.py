@@ -356,12 +356,6 @@ def import_projects(zip_path, merge_strategy='rename'):
                     if old_ds_id in id_mappings['dataset_versions']:
                         job_dict['dataset_version_id'] = id_mappings['dataset_versions'][old_ds_id]
                 
-                # Update model path
-                if job_dict.get('model_path'):
-                    old_model_path = Path(job_dict['model_path'])
-                    new_model_path = Path('training_runs') / str(new_project_id) / f'job_{old_job_id}' / old_model_path.name
-                    job_dict['model_path'] = str(new_model_path)
-                
                 # Convert datetimes
                 for field in ['started_at', 'completed_at', 'created_at']:
                     if job_dict.get(field):
@@ -378,12 +372,12 @@ def import_projects(zip_path, merge_strategy='rename'):
                     new_training_path = Path('training_runs') / str(new_project_id) / f'job_{new_job.id}'
                     new_training_path.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copytree(old_training_path, new_training_path, dirs_exist_ok=True)
-                    
-                    # Update model path to new location
-                    if new_job.model_path:
-                        new_model_path = new_training_path / 'weights' / 'best.pt'
-                        if new_model_path.exists():
-                            new_job.model_path = str(new_model_path)
+
+                # Point model path at the new job's weights location (hf:// paths stay as-is)
+                if new_job.model_path and not str(new_job.model_path).startswith('hf://'):
+                    new_job.model_path = str(
+                        Path('training_runs') / str(new_project_id) / f'job_{new_job.id}' / 'weights' / 'best.pt'
+                    )
             
             # Import custom models
             for model_data in project_data['custom_models']:

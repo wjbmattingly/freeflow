@@ -4,6 +4,7 @@ let project = null;
 let allImages = [];
 let filteredImages = [];
 let currentFilter = 'all'; // 'all', 'annotated', 'unannotated'
+let currentSortOrder = 'name-asc'; // Track current sort order
 let classes = [];
 let datasetVersions = [];
 let currentPage = 1;
@@ -158,7 +159,53 @@ function applyFilter() {
     } else if (currentFilter === 'unannotated') {
         filteredImages = allImages.filter(img => img.status !== 'completed');
     }
+    
+    // Apply sorting after filtering
+    sortImages();
+    
     currentPage = 1; // Reset to first page when filter changes
+}
+
+// Sort images based on current sort order
+function sortImages() {
+    switch (currentSortOrder) {
+        case 'name-asc':
+            filteredImages.sort((a, b) => a.filename.localeCompare(b.filename));
+            break;
+        case 'name-desc':
+            filteredImages.sort((a, b) => b.filename.localeCompare(a.filename));
+            break;
+        case 'date-newest':
+            filteredImages.sort((a, b) => new Date(b.uploaded_at || 0) - new Date(a.uploaded_at || 0));
+            break;
+        case 'date-oldest':
+            filteredImages.sort((a, b) => new Date(a.uploaded_at || 0) - new Date(b.uploaded_at || 0));
+            break;
+        case 'annotated-first':
+            filteredImages.sort((a, b) => {
+                const aAnnotated = a.status === 'completed' ? 1 : 0;
+                const bAnnotated = b.status === 'completed' ? 1 : 0;
+                return bAnnotated - aAnnotated;
+            });
+            break;
+        case 'unannotated-first':
+            filteredImages.sort((a, b) => {
+                const aAnnotated = a.status === 'completed' ? 1 : 0;
+                const bAnnotated = b.status === 'completed' ? 1 : 0;
+                return aAnnotated - bAnnotated;
+            });
+            break;
+    }
+}
+
+// Handle sort order change
+function changeSortOrder() {
+    const sortBy = document.getElementById('sortBy');
+    currentSortOrder = sortBy.value;
+    
+    // Re-apply filter (which will also sort) and display
+    applyFilter();
+    displayImagesGrid();
 }
 
 function filterImages(filter) {
@@ -289,8 +336,8 @@ function nextPage() {
 }
 
 function openAnnotation(imageId) {
-    // Pass the current filter to the annotation page
-    location.href = `/annotate/${PROJECT_ID}?image=${imageId}&filter=${currentFilter}`;
+    // Pass the current filter and sort order to the annotation page
+    location.href = `/annotate/${PROJECT_ID}?image=${imageId}&filter=${currentFilter}&sort=${currentSortOrder}`;
 }
 
 function openAnnotationOld(imageId) {

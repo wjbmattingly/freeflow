@@ -55,7 +55,18 @@
                     Showing <span id="showingCount">0</span> of <span id="totalImagesCount">0</span> images
                 </p>
             </div>
-            <div class="images-controls">
+            <div class="images-controls" style="display: flex; gap: 1rem;">
+                <label style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span style="font-size: 0.875rem;">Sort by:</span>
+                    <select id="sortBy" onchange="changeSortOrder()" style="padding: 0.5rem; border-radius: 0.375rem; border: 1px solid var(--border);">
+                        <option value="name-asc">Name (A-Z)</option>
+                        <option value="name-desc">Name (Z-A)</option>
+                        <option value="date-newest">Date (Newest)</option>
+                        <option value="date-oldest">Date (Oldest)</option>
+                        <option value="annotated-first">Annotated First</option>
+                        <option value="unannotated-first">Unannotated First</option>
+                    </select>
+                </label>
                 <label style="display: flex; align-items: center; gap: 0.5rem;">
                     <span style="font-size: 0.875rem;">Per page:</span>
                     <select id="imagesPerPage" onchange="changeImagesPerPage()" style="padding: 0.5rem; border-radius: 0.375rem; border: 1px solid var(--border);">

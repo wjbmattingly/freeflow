@@ -1,0 +1,62 @@
+# FreeFlow — docker compose (CasaOS-compatible)
+#
+# Build the image straight from GitHub (no local checkout needed):
+#   docker build -t freeflow:latest https://github.com/wjbmattingly/freeflow.git
+#
+# Then either:
+#   - CasaOS: Install a customized app → import this compose file, or
+#   - CLI:    docker compose up -d
+#
+# With an NVIDIA GPU (auto-detected by the app at startup):
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+#
+# Change the port by setting FREEFLOW_PORT (default 7860):
+#   FREEFLOW_PORT=8080 docker compose up -d
+
+name: freeflow
+
+services:
+  freeflow:
+    image: freeflow:latest
+    build: https://github.com/wjbmattingly/freeflow.git
+    container_name: freeflow
+    restart: unless-stopped
+    # Run as root so CasaOS bind-mounted volumes are writable
+    # (the image defaults to a non-root user for HuggingFace Spaces)
+    user: "0:0"
+    environment:
+      - PORT=${FREEFLOW_PORT:-7860}
+      # Optional: HF token with access to facebook/sam3 — SAM3 weights
+      # (~3.5GB) are downloaded automatically at first startup if set
+      - HF_TOKEN=${HF_TOKEN:-}
+    ports:
+      - "${FREEFLOW_PORT:-7860}:${FREEFLOW_PORT:-7860}"
+    volumes:
+      - /DATA/AppData/freeflow/instance:/app/instance
+      - /DATA/AppData/freeflow/uploads:/app/uploads
+      - /DATA/AppData/freeflow/datasets:/app/datasets
+      - /DATA/AppData/freeflow/training_runs:/app/training_runs
+      - /DATA/AppData/freeflow/models:/app/models
+      - /DATA/AppData/freeflow/output_models:/app/output_models
+
+x-casaos:
+  architectures:
+    - amd64
+    - arm64
+  main: freeflow
+  author: wjbmattingly
+  developer: wjbmattingly
+  category: AI
+  title:
+    en_us: FreeFlow
+  tagline:
+    en_us: Image annotation with YOLO26 training and SAM3 segmentation
+  description:
+    en_us: >-
+      A Roboflow-like annotation platform for object detection. Annotate
+      images, train YOLO26 models locally or on Hugging Face Jobs, and use
+      SAM3-assisted click/box-to-polygon segmentation. GPU is detected and
+      used automatically when available.
+  icon: https://raw.githubusercontent.com/wjbmattingly/freeflow/main/assets/logo.png
+  index: /
+  port_map: "7860"

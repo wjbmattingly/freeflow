@@ -1,0 +1,35 @@
+[project]
+name = "freeflow"
+version = "1.0.0"
+description = "FreeFlow — image annotation platform with YOLO26 training and SAM3-assisted segmentation"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "Flask",
+    "Flask-SQLAlchemy",
+    "Flask-SocketIO",
+    "Flask-CORS",
+    "whitenoise",
+    "Pillow",
+    "pypdfium2",
+    "ultralytics>=8.4.0",
+    "torch",
+    "torchvision",
+    "numpy<2.0",
+    "opencv-python>=4.9.0",
+    "python-socketio",
+    "matplotlib",
+    "pandas",
+    "Werkzeug",
+    "roboflow",
+    "PyYAML",
+    "shapely",
+    "scipy",
+    "huggingface_hub",
+    "eventlet",
+    "gunicorn",
+]
+
+[tool.uv]
+# This is an application, not an installable package
+package = false

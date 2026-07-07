@@ -4,11 +4,11 @@
   # FreeFlow Annotation Platform
   
   ### A comprehensive, Roboflow-like annotation platform for object detection
-  **Built with Flask • Powered by YOLOv11 • Designed for Speed**
+  **Built with Flask • Powered by YOLO26 • Designed for Speed**
   
   [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/downloads/)
   [![Flask](https://img.shields.io/badge/Flask-3.0-green.svg)](https://flask.palletsprojects.com/)
-  [![YOLO](https://img.shields.io/badge/YOLO-v11-purple.svg)](https://github.com/ultralytics/ultralytics)
+  [![YOLO](https://img.shields.io/badge/YOLO-26-purple.svg)](https://github.com/ultralytics/ultralytics)
   [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 </div>
 
@@ -53,8 +53,8 @@
 - ✅ Automatic annotation removal before assist
 - ✅ Real-time predictions with bounding boxes
 
-### 🏋️ **YOLOv11 Model Training**
-- ✅ Train with latest **YOLOv11** architecture (nano, small, medium, large, x-large)
+### 🏋️ **YOLO26 Model Training**
+- ✅ Train with latest **YOLO26** architecture (nano, small, medium, large, x-large)
 - ✅ **Train locally OR on Hugging Face Jobs** (cloud GPUs/TPUs)
 - ✅ **Hugging Face Jobs integration** with hardware selection (T4, A10G, A100, TPUs)
 - ✅ **Multiple simultaneous training jobs**
@@ -92,30 +92,42 @@
 
 ### Installation
 
-1. **Clone the repository:**
+1. **Install [uv](https://docs.astral.sh/uv/)** (if you don't have it):
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+2. **Clone the repository:**
 ```bash
 git clone https://github.com/wjbmattingly/freeflow
 cd freeflow
 ```
 
-2. **Create a virtual environment:**
+3. **Install dependencies and run:**
 ```bash
-conda create --name=freeflow python=3.12
-conda activate freeflow # On Windows: venv\Scripts\activate
+uv sync
+uv run python app.py
 ```
 
-3. **Install dependencies:**
+Or simply:
 ```bash
-pip install -r requirements.txt
+./start.sh
 ```
 
-### Running the Application
+Open your browser and navigate to: **http://localhost:5005**
 
-```bash
-python app.py
-```
+> **Legacy pip install:** `pip install -r requirements.txt` still works if you prefer a manual virtualenv.
 
-Open your browser and navigate to: **http://localhost:5000**
+### SAM3 Segmentation Setup (optional)
+
+FreeFlow uses **SAM3** for click/box-to-polygon segmentation, with SAM2.1 fallbacks.
+SAM3 weights are license-gated on Hugging Face:
+
+1. Request access at https://huggingface.co/facebook/sam3
+2. `export HF_TOKEN=hf_...` (or `hf auth login`)
+3. Run `./download_sam.sh`
+
+SAM2.1 fallback models download automatically — no token needed.
 
 ---
 
@@ -164,7 +176,7 @@ Open your browser and navigate to: **http://localhost:5000**
 - Enter version name and description
 - Create versioned snapshot
 
-### 6️⃣ Train YOLOv11 Model
+### 6️⃣ Train YOLO26 Model
 - Click **"Train Model"**
 - Enter model name
 - Select size: Nano, Small, Medium, Large, or X-Large
@@ -215,7 +227,7 @@ freeflow/
 │   ├── app.py                    # Main Flask application & routes
 │   ├── models.py                 # SQLAlchemy database models
 │   ├── routes.py                 # API endpoints (1500+ lines)
-│   ├── training.py               # YOLOv11 training logic with callbacks
+│   ├── training.py               # YOLO26 training logic with callbacks
 │   └── requirements.txt          # Python dependencies
 │
 ├── 🎨 Frontend
@@ -304,7 +316,7 @@ freeflow/
 - **Flask 3.0** - Web framework
 - **SQLAlchemy** - ORM for database
 - **Flask-SocketIO** - Real-time WebSocket communication
-- **Ultralytics YOLOv11** - Object detection training & inference
+- **Ultralytics YOLO26** - Object detection training & inference
 - **PyTorch** - Deep learning backend
 - **pypdfium2** - Fast PDF parsing
 - **Pillow** - Image processing
@@ -332,7 +344,7 @@ freeflow/
 - ✅ **Local-first** - All data stays on your machine
 - ✅ **Real-time updates** - SocketIO for live progress
 - ✅ **Modular architecture** - Clean separation of concerns
-- ✅ **Latest YOLO** - YOLOv11 for state-of-the-art performance
+- ✅ **Latest YOLO** - YOLO26 for state-of-the-art performance
 - ✅ **Reproducible** - Seeds for consistent train/val/test splits
 - ✅ **Production-ready** - Proper error handling and logging
 

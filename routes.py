@@ -1732,8 +1732,8 @@ def use_external_model(project_id):
 
 
 def sam2_predict_point(project_id):
-    """SAM2: Predict polygon segmentation from a point"""
-    from sam2_service import get_sam2_service
+    """SAM: Predict polygon segmentation from a point"""
+    from sam_service import get_sam_service
     
     project = Project.query.get_or_404(project_id)
     data = request.json
@@ -1750,36 +1750,36 @@ def sam2_predict_point(project_id):
     image = Image.query.get_or_404(image_id)
     
     try:
-        sam2 = get_sam2_service()
-        result = sam2.predict_from_point(
+        sam = get_sam_service()
+        result = sam.predict_from_point(
             image.filepath,
             float(point_x),
             float(point_y),
             float(simplification),
             model_size=model_size
         )
-        
+
         if 'error' in result:
             return jsonify(result), 500
-        
+
         return jsonify(result)
-        
+
     except FileNotFoundError as e:
         return jsonify({
-            'error': 'SAM2 model not found',
-            'message': 'Please download the SAM2 model first',
-            'instructions': 'Run: ./download_sam2.sh',
+            'error': 'SAM model not found',
+            'message': 'Please download the SAM model first',
+            'instructions': 'Run: ./download_sam.sh',
             'details': str(e)
         }), 503
     except Exception as e:
-        print(f"❌ SAM2 error: {e}")
+        print(f"❌ SAM error: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 def sam2_predict_box(project_id):
-    """SAM2: Predict polygon segmentation from a bounding box"""
-    from sam2_service import get_sam2_service
+    """SAM: Predict polygon segmentation from a bounding box"""
+    from sam_service import get_sam_service
     
     project = Project.query.get_or_404(project_id)
     data = request.json
@@ -1798,8 +1798,8 @@ def sam2_predict_box(project_id):
     image = Image.query.get_or_404(image_id)
     
     try:
-        sam2 = get_sam2_service()
-        result = sam2.predict_from_box(
+        sam = get_sam_service()
+        result = sam.predict_from_box(
             image.filepath,
             float(x_center),
             float(y_center),
@@ -1808,66 +1808,68 @@ def sam2_predict_box(project_id):
             float(simplification),
             model_size=model_size
         )
-        
+
         if 'error' in result:
             return jsonify(result), 500
-        
+
         return jsonify(result)
-        
+
     except FileNotFoundError as e:
         return jsonify({
-            'error': 'SAM2 model not found',
-            'message': 'Please download the SAM2 model first',
-            'instructions': 'Run: ./download_sam2.sh',
+            'error': 'SAM model not found',
+            'message': 'Please download the SAM model first',
+            'instructions': 'Run: ./download_sam.sh',
             'details': str(e)
         }), 503
     except Exception as e:
-        print(f"❌ SAM2 box prediction error: {e}")
+        print(f"❌ SAM box prediction error: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 def get_sam2_models():
-    """Get list of available SAM2 models and their download status"""
-    from sam2_service import get_available_models
-    
+    """Get list of available SAM models and their download status"""
+    from sam_service import get_available_models
+
     try:
         models = get_available_models()
         return jsonify({'models': models})
     except Exception as e:
-        print(f"❌ Error getting SAM2 models: {e}")
+        print(f"❌ Error getting SAM models: {e}")
         return jsonify({'error': str(e)}), 500
 
 def download_sam2_model(model_key):
-    """Download a specific SAM2 model"""
-    from sam2_service import download_model
-    
+    """Download a specific SAM model (SAM3 requires a HF token with access to facebook/sam3)"""
+    from sam_service import download_model
+
     try:
-        result = download_model(model_key)
-        
+        data = request.get_json(silent=True) or {}
+        hf_token = data.get('hf_token')
+        result = download_model(model_key, hf_token=hf_token)
+
         if 'error' in result:
             return jsonify(result), 400
-        
+
         return jsonify(result)
     except Exception as e:
-        print(f"❌ Error downloading SAM2 model: {e}")
+        print(f"❌ Error downloading SAM model: {e}")
         return jsonify({'error': str(e)}), 500
 
 def set_sam2_model():
-    """Set the active SAM2 model"""
-    from sam2_service import get_sam2_service
-    
+    """Set the active SAM model"""
+    from sam_service import get_sam_service
+
     data = request.json
     model_size = data.get('model_size')
-    
+
     if not model_size:
         return jsonify({'error': 'model_size is required'}), 400
-    
+
     try:
-        sam2 = get_sam2_service()
-        sam2.set_model_size(model_size)
+        sam = get_sam_service()
+        sam.set_model_size(model_size)
         return jsonify({
-            'message': f'SAM2 model set to {model_size}',
+            'message': f'SAM model set to {model_size}',
             'model_size': model_size
         })
     except FileNotFoundError as e:
@@ -1876,7 +1878,7 @@ def set_sam2_model():
             'message': str(e)
         }), 404
     except Exception as e:
-        print(f"❌ Error setting SAM2 model: {e}")
+        print(f"❌ Error setting SAM model: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500

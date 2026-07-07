@@ -60,14 +60,16 @@ def train_on_hf():
     from ultralytics import YOLO
     
     print(f"\n🏋️ Starting training...")
-    model = YOLO(f"yolo11{args.model_size}.pt")
+    model = YOLO(f"yolo26{args.model_size}.pt")
     
+    # Project path must be absolute: ultralytics >=8.4 nests relative
+    # project paths under its global runs/ directory
     results = model.train(
         data=data_yaml,
         epochs=args.epochs,
         batch=args.batch_size,
         imgsz=args.image_size,
-        project="runs",
+        project=os.path.abspath("runs"),
         name=f"job_{args.job_id}",
         exist_ok=True,
         verbose=True

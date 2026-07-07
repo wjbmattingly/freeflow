@@ -61,8 +61,8 @@ def train_yolo_model(job_id, socketio):
             
             # Load model based on size selection
             model_size = job.model_size or 'n'
-            model_file = f'yolo11{model_size}.pt'
-            print(f"🤖 Loading YOLO11-{model_size.upper()} model ({model_file})...")
+            model_file = f'yolo26{model_size}.pt'
+            print(f"🤖 Loading YOLO26-{model_size.upper()} model ({model_file})...")
             model = YOLO(model_file)
             print(f"✅ Model loaded")
             
@@ -151,7 +151,9 @@ def train_yolo_model(job_id, socketio):
                 epochs=job.epochs,
                 batch=job.batch_size,
                 imgsz=job.image_size,
-                project=os.path.join('training_runs', str(project.id)),
+                # Must be absolute: ultralytics >=8.4 nests relative project
+                # paths under its global runs/ directory
+                project=os.path.abspath(os.path.join('training_runs', str(project.id))),
                 name=f'job_{job.id}',
                 exist_ok=True,
                 verbose=True
@@ -288,9 +290,10 @@ def train_yolo_model(job_id, socketio):
             
         except Exception as e:
             job.status = 'failed'
+            job.error_message = str(e)
             job.completed_at = datetime.utcnow()
             db.session.commit()
-            
+
             socketio.emit('training_error', {
                 'job_id': job.id,
                 'status': 'failed',

@@ -8,14 +8,14 @@
 #     "pillow",
 #     "pyyaml",
 #     "numpy<2.0",
-#     "ultralytics",
+#     "ultralytics>=8.4.0",
 # ]
 # ///
 
 """
-Train YOLO11 model on Hugging Face Jobs.
+Train YOLO26 model on Hugging Face Jobs.
 
-This UV script trains a YOLO11 model on a dataset from Hugging Face Hub.
+This UV script trains a YOLO26 model on a dataset from Hugging Face Hub.
 The dataset should be in YOLO format with images and labels folders.
 
 Features:
@@ -23,7 +23,7 @@ Features:
 - 📦 Automatic dataset download from HF Hub
 - 📊 Real-time training progress
 - 💾 Upload trained model back to HF Hub
-- ⚡ Supports all YOLO11 sizes (n/s/m/l/x)
+- ⚡ Supports all YOLO26 sizes (n/s/m/l/x)
 
 Usage:
     hf jobs uv run --flavor t4-small --secrets HF_TOKEN \\
@@ -83,7 +83,7 @@ from ultralytics import YOLO
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Train YOLO11 model on HuggingFace Jobs"
+        description="Train YOLO26 model on HuggingFace Jobs"
     )
     
     # Required arguments
@@ -188,7 +188,7 @@ def train_yolo(
     patience: int
 ) -> Path:
     """Train YOLO model"""
-    print(f"\n🏋️ Starting YOLO11-{model_size.upper()} training...")
+    print(f"\n🏋️ Starting YOLO26-{model_size.upper()} training...")
     print(f"   Epochs: {epochs}")
     print(f"   Batch size: {batch_size}")
     print(f"   Image size: {image_size}")
@@ -197,27 +197,30 @@ def train_yolo(
     data_yaml = find_data_yaml(dataset_path)
     
     # Load YOLO model
-    model_file = f"yolo11{model_size}.pt"
+    model_file = f"yolo26{model_size}.pt"
     print(f"📦 Loading {model_file}...")
     model = YOLO(model_file)
     
     # Train
+    # Project path must be absolute: ultralytics >=8.4 nests relative
+    # project paths under its global runs/ directory
+    train_project = Path.cwd() / "runs" / "train"
     results = model.train(
         data=str(data_yaml),
         epochs=epochs,
         batch=batch_size,
         imgsz=image_size,
         patience=patience,
-        project="runs/train",
+        project=str(train_project),
         name="yolo_hf_job",
         exist_ok=True,
         verbose=True,
         save=True,
         plots=True
     )
-    
+
     # Get best model path
-    best_model = Path("runs/train/yolo_hf_job/weights/best.pt")
+    best_model = train_project / "yolo_hf_job" / "weights" / "best.pt"
     print(f"✅ Training complete! Best model: {best_model}")
     
     return best_model
@@ -274,20 +277,20 @@ tags:
 - yolo
 - object-detection
 - ultralytics
-- yolo11
+- yolo26
 library_name: ultralytics
 license: agpl-3.0
 ---
 
-# YOLO11-{model_size.upper()} Trained Model
+# YOLO26-{model_size.upper()} Trained Model
 
-This model was trained using YOLO11-{model_size.upper()} architecture on HuggingFace Jobs.
+This model was trained using YOLO26-{model_size.upper()} architecture on HuggingFace Jobs.
 
 ## Training Details
 
 - **Model Size**: {model_size.upper()}
 - **Epochs**: {epochs}
-- **Framework**: Ultralytics YOLO11
+- **Framework**: Ultralytics YOLO26
 
 ## Usage
 
@@ -322,11 +325,11 @@ def main():
     args = parse_args()
     
     print("="*60)
-    print("🚀 YOLO11 Training on HuggingFace Jobs")
+    print("🚀 YOLO26 Training on HuggingFace Jobs")
     print("="*60)
     print(f"Dataset: {args.dataset_repo}")
     print(f"Output: {args.output_repo}")
-    print(f"Model: YOLO11-{args.model_size.upper()}")
+    print(f"Model: YOLO26-{args.model_size.upper()}")
     print("="*60)
     
     # Get HF token

@@ -32,7 +32,7 @@ db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance', '
 app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = 'uploads'
-app.config['MAX_CONTENT_LENGTH'] = 100000 * 1024 * 1024  # 10GB max file size
+app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024 * 1024  # 10GB max file size
 
 # Ensure instance directory exists
 os.makedirs(os.path.dirname(db_path), exist_ok=True)
@@ -53,7 +53,7 @@ socketio = SocketIO(
     app, 
     cors_allowed_origins="*",
     cors_credentials=True,
-    max_http_buffer_size=100000 * 1024 * 1024,  # 10GB for large file uploads
+    max_http_buffer_size=10 * 1024 * 1024 * 1024,  # 10GB for large file uploads
     async_mode=async_mode,
     logger=True,
     engineio_logger=True,

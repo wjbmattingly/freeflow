@@ -4,14 +4,17 @@
 
 {% block content %}
 <div class="annotate-container">
-    <div class="annotate-header">
-        <button class="btn btn-secondary" onclick="location.href='/project/{{ project_id }}'">← Back</button>
-        <div class="image-nav">
+    <div class="annotate-header" style="display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;">
+        <div style="display: flex; align-items: center; gap: 1rem; justify-self: start;">
+            <button class="btn btn-secondary" onclick="location.href='/project/{{ project_id }}'">← Back</button>
+            <span id="imageFilename" style="font-weight: 500; color: white; font-size: 0.95rem; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="">-</span>
+        </div>
+        <div class="image-nav" style="justify-self: center;">
             <button class="btn-icon" onclick="previousImage()" id="prevBtn">←</button>
             <span id="imageCounter">0 / 0</span>
             <button class="btn-icon" onclick="nextImage()" id="nextBtn">→</button>
         </div>
-        <div class="annotate-actions">
+        <div class="annotate-actions" style="justify-self: end;">
             <button class="btn btn-secondary" onclick="toggleLabelAssist()" id="assistBtn">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
                     <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" stroke="currentColor" stroke-width="2"/>
@@ -42,7 +45,7 @@
                 <h3>Layers</h3>
                 <div class="layers-toggle">
                     <label>
-                        <input type="checkbox" checked onchange="toggleAnnotationVisibility()">
+                        <input type="checkbox" id="showAnnotationsCheckbox" checked onchange="toggleAnnotationVisibility()">
                         Show Annotations
                     </label>
                 </div>
@@ -105,11 +108,11 @@
             </div>
 
             <div class="sidebar-section">
-                <h3>🤖 SAM2 Segmentation</h3>
+                <h3>🤖 SAM Segmentation (SAM3)</h3>
                 
                 <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; padding: 0.5rem; background: rgba(139, 92, 246, 0.1); border-radius: 0.5rem; margin-bottom: 1rem;">
                     <input type="checkbox" id="sam2EnabledCheckbox" onchange="toggleSAM2Mode()" style="cursor: pointer;">
-                    <span style="font-size: 0.875rem;">Enable SAM2 Mode</span>
+                    <span style="font-size: 0.875rem;">Enable SAM Mode</span>
                 </label>
                 
                 <div id="sam2Controls" style="display: none;">

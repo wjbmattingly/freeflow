@@ -1,36 +1,27 @@
 #!/bin/bash
 
-# FreeFlow Startup Script
+# FreeFlow Startup Script (uv)
 
 echo "🚀 Starting FreeFlow Annotation Platform..."
 echo ""
 
-# Check if virtual environment exists
-if [ ! -d "venv" ]; then
-    echo "Creating virtual environment..."
-    python3 -m venv venv
+# Require uv (https://docs.astral.sh/uv/)
+if ! command -v uv >/dev/null 2>&1; then
+    echo "❌ uv is not installed."
+    echo "   Install it with: curl -LsSf https://astral.sh/uv/install.sh | sh"
+    exit 1
 fi
 
-# Activate virtual environment
-echo "Activating virtual environment..."
-source venv/bin/activate
-
-# Install dependencies
-if [ ! -f "venv/.installed" ]; then
-    echo "Installing dependencies..."
-    pip install -r requirements.txt
-    touch venv/.installed
-else
-    echo "Dependencies already installed."
-fi
+# Install/sync dependencies into .venv
+echo "📦 Syncing dependencies with uv..."
+uv sync
 
 echo ""
 echo "✅ Setup complete!"
 echo ""
-echo "🌐 Starting Flask server on http://localhost:5000"
+echo "🌐 Starting Flask server on http://localhost:5005"
 echo "   Press Ctrl+C to stop the server"
 echo ""
 
 # Start the application
-python app.py
-
+exec uv run python app.py
